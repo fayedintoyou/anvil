@@ -6,6 +6,9 @@ import { MAX_NAME, MAX_SKILL, PROFESSIONS } from '../src/core/types.ts';
 const STRING = 3;
 const INTEGER = 4;
 const SUBCOMMAND = 1;
+const BOOLEAN = 5;
+/** Manage Server: commands with this are hidden from everyone else (the Worker checks again). */
+const MANAGE_GUILD = String(1 << 5);
 
 const character = (description: string) => ({
   name: 'character',
@@ -93,6 +96,12 @@ export const COMMANDS = [
   {
     name: 'mine',
     description: 'What you’ve logged for your characters',
+  },
+  {
+    name: 'board',
+    description: 'Post the crafting board in this channel; anvil keeps it up to date (needs Manage Server)',
+    default_member_permissions: MANAGE_GUILD,
+    options: [{ name: 'stop', description: 'Take the board down instead', type: BOOLEAN, required: false }],
   },
   {
     name: 'anvil',

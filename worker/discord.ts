@@ -3,14 +3,14 @@
 
 export const InteractionType = { Ping: 1, Command: 2, Autocomplete: 4 } as const;
 export const ResponseType = { Pong: 1, Message: 4, Choices: 8 } as const;
-export const OptionType = { Subcommand: 1, String: 3, Integer: 4 } as const;
+export const OptionType = { Subcommand: 1, String: 3, Integer: 4, Boolean: 5 } as const;
 const EPHEMERAL = 1 << 6;
 const MANAGE_GUILD = 1n << 5n;
 
 export interface Option {
   name: string;
   type: number;
-  value?: string | number;
+  value?: string | number | boolean;
   focused?: boolean;
   options?: Option[];
 }
@@ -18,6 +18,7 @@ export interface Option {
 export interface Interaction {
   type: number;
   guild_id?: string;
+  channel_id?: string;
   member?: { nick?: string | null; permissions?: string; user: DiscordUser };
   user?: DiscordUser;
   data?: { name: string; options?: Option[] };
@@ -92,4 +93,14 @@ export async function verify(request: Request, body: string, publicKey: string):
   }
   const key = await crypto.subtle.importKey('raw', hexBytes(publicKey), { name: 'Ed25519' }, false, ['verify']);
   return crypto.subtle.verify('Ed25519', key, hexBytes(signature), new TextEncoder().encode(timestamp + body));
+}
+
+/** A call to Discord's REST API as the bot, for the board: the one thing anvil does that isn't a reply.
+ *  DISCORD_API is only set by the end-to-end run, which plays Discord's API too. */
+export function discordApi(env: Env, method: string, path: string, body?: unknown): Promise<Response> {
+  return fetch(`${env.DISCORD_API ?? 'https://discord.com/api/v10'}${path}`, {
+    method,
+    headers: { authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
 }

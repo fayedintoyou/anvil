@@ -73,4 +73,5 @@ export const HELP = [
   '- `/recipe add`: recipes a skill doesn’t cover, like drops, vendor patterns, quests and campsite recipes.',
   '- `/whocan`: who can make something.',
   '- `/crafters`: everyone with a profession. `/mine`: what you’ve logged.',
+  '- `/board`: a message in a channel that anvil keeps up to date (Manage Server).',
 ].join('\n');

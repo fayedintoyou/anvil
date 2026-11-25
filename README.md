@@ -15,6 +15,8 @@ no addon to install and nothing to export from the game:
 - **`/crafters`**, **`/mine`**: everyone in a profession; what you've logged.
 - **`/anvil`**: how to use it, and the guild's page: every crafter's skill, a search, and the recipes nobody
   has yet, to farm or buy toward. The link unfurls in Discord.
+- **`/board`**: a message in a channel of your choosing, with every profession's crafters, that anvil edits
+  itself as people log things. Manage Server only.
 - **Your characters are yours**: only you, or someone with Manage Server, can change them.
 
 The recipe list holds 2,231 recipes across the twelve professions, built from two MIT-licensed addons'

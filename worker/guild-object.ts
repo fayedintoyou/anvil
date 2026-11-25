@@ -3,11 +3,13 @@ import type { Character, ProfessionId, Roster } from '../src/core/types';
 import { checkPrimaryLimit, nameKey } from '../src/core/validate';
 import { professionName } from '../src/core/professions';
 import { recipe as recipeById } from '../src/core/recipes';
-import type { Actor } from './discord';
+import { discordApi, type Actor } from './discord';
+import { boardMessage } from './board';
 
 // One object per Discord server. Its SQLite storage holds the characters people have logged, their
 // profession skills, the recipes logged for them, and the page's settings. Each method's reads and writes
-// run with no await between them, so two people changing things at once can't lose either change.
+// run with no await between them, so two people changing things at once can't lose either change. If the
+// guild has a board, a change sets an alarm, and the alarm edits the board: one edit for a burst of changes.
 
 export type Outcome = { ok: true; message: string } | { ok: false; error: string };
 
@@ -20,6 +22,10 @@ interface CharacterRow extends Record<string, SqlStorageValue> {
 }
 
 const PAGE_KEY_LENGTH = 12;
+const BOARD_DELAY_MS = 30_000;
+const BOARD_SETTINGS = ['boardChannel', 'boardMessage'];
+const CANT_POST =
+  'I can’t post here. In this channel’s settings → Permissions, give anvil View Channel, Send Messages and Embed Links, then try again.';
 
 function randomKey(): string {
   const alphabet = 'abcdefghijkmnpqrstuvwxyz23456789';
@@ -127,6 +133,7 @@ export class GuildObject extends DurableObject<Env> {
   async setTitle(actor: Actor, title: string): Promise<Outcome> {
     if (!actor.manager) return { ok: false, error: 'Naming the page needs Manage Server.' };
     this.setSetting('title', title);
+    await this.boardChanged();
     return { ok: true, message: `The page is now called “${title}”.` };
   }
 
@@ -157,6 +164,7 @@ export class GuildObject extends DurableObject<Env> {
     }
     this.sql.exec('INSERT OR REPLACE INTO skills (character, profession, skill) VALUES (?, ?, ?)', row.key, prof, skill);
     this.touch(row.key, actor);
+    await this.boardChanged();
     return { ok: true, message: `${row.name}: ${professionName(prof)} ${skill}.` };
   }
 
@@ -173,6 +181,7 @@ export class GuildObject extends DurableObject<Env> {
       .filter((r) => recipeById(r.recipe)?.prof === prof);
     for (const r of dropped) this.sql.exec('DELETE FROM recipes WHERE character = ? AND recipe = ?', row.key, r.recipe);
     this.touch(row.key, actor);
+    await this.boardChanged();
     const also = dropped.length ? ` and ${dropped.length} logged recipe${dropped.length === 1 ? '' : 's'}` : '';
     return { ok: true, message: `Dropped ${professionName(prof)}${also} from ${row.name}.` };
   }
@@ -184,6 +193,7 @@ export class GuildObject extends DurableObject<Env> {
     this.sql.exec('DELETE FROM recipes WHERE character = ?', key);
     this.sql.exec('DELETE FROM skills WHERE character = ?', key);
     this.sql.exec('DELETE FROM characters WHERE key = ?', key);
+    await this.boardChanged();
     return { ok: true, message: `Forgot ${shown} and everything logged for them.` };
   }
 
@@ -207,6 +217,7 @@ export class GuildObject extends DurableObject<Env> {
     }
     this.sql.exec('INSERT OR IGNORE INTO recipes (character, recipe) VALUES (?, ?)', row.key, r.id);
     this.touch(row.key, actor);
+    await this.boardChanged();
     const note = r.learned === 'trainer' ? ' (A trainer teaches this one, so the skill alone already counted.)' : '';
     return { ok: true, message: `Logged ${r.name} for ${row.name}.${note}` };
   }
@@ -218,6 +229,71 @@ export class GuildObject extends DurableObject<Env> {
     const removed = this.sql.exec('DELETE FROM recipes WHERE character = ? AND recipe = ?', row.key, recipeId).rowsWritten;
     if (!removed) return { ok: false, error: `${row.name} doesn’t have that recipe logged.` };
     this.touch(row.key, actor);
+    await this.boardChanged();
     return { ok: true, message: `Took ${recipeById(recipeId)?.name ?? 'that recipe'} off ${row.name}.` };
+  }
+
+  // ---------- The board ----------
+
+  private pageUrl(): string | undefined {
+    const [origin, guildId, key] = [this.setting('origin'), this.setting('guildId'), this.setting('pageKey')];
+    return origin && guildId && key ? `${origin}/g/${guildId}/${key}` : undefined;
+  }
+
+  private clearBoard() {
+    for (const name of BOARD_SETTINGS) this.sql.exec('DELETE FROM settings WHERE name = ?', name);
+  }
+
+  /** After a change, edit the board a little later, so a burst of changes is one edit. */
+  private async boardChanged() {
+    if (!this.setting('boardMessage')) return;
+    if ((await this.ctx.storage.getAlarm()) === null) {
+      await this.ctx.storage.setAlarm(Date.now() + Number(this.env.BOARD_DELAY_MS ?? BOARD_DELAY_MS));
+    }
+  }
+
+  /** Posts the board in a channel, and takes down the one it replaces. */
+  async setBoard(actor: Actor, guildId: string, channelId: string, origin: string): Promise<Outcome> {
+    if (!actor.manager) return { ok: false, error: 'Putting up the board needs Manage Server.' };
+    if (!this.env.DISCORD_BOT_TOKEN) return { ok: false, error: 'The board isn’t switched on for this anvil yet.' };
+    await this.pageKey();
+    this.setSetting('guildId', guildId);
+    this.setSetting('origin', origin);
+    const response = await discordApi(this.env, 'POST', `/channels/${channelId}/messages`, boardMessage(await this.roster(), this.pageUrl()!));
+    if (response.status === 403 || response.status === 404) return { ok: false, error: CANT_POST };
+    if (!response.ok) return { ok: false, error: `Discord wouldn’t take the board (${response.status}). Try again in a moment.` };
+    const posted = await response.json<{ id: string }>();
+    const [oldChannel, oldMessage] = BOARD_SETTINGS.map((name) => this.setting(name));
+    this.setSetting('boardChannel', channelId);
+    this.setSetting('boardMessage', posted.id);
+    if (oldChannel && oldMessage) await discordApi(this.env, 'DELETE', `/channels/${oldChannel}/messages/${oldMessage}`).catch(() => {});
+    return {
+      ok: true,
+      message: `The board is up in <#${channelId}>. It updates itself about 30 seconds after anyone logs something, so it’s worth pinning.`,
+    };
+  }
+
+  async stopBoard(actor: Actor): Promise<Outcome> {
+    if (!actor.manager) return { ok: false, error: 'Taking down the board needs Manage Server.' };
+    const [channel, message] = BOARD_SETTINGS.map((name) => this.setting(name));
+    if (!channel || !message) return { ok: false, error: 'There’s no board up. Post one with /board.' };
+    this.clearBoard();
+    await this.ctx.storage.deleteAlarm();
+    await discordApi(this.env, 'DELETE', `/channels/${channel}/messages/${message}`).catch(() => {});
+    return { ok: true, message: 'Took the board down.' };
+  }
+
+  async alarm() {
+    const [channel, message] = BOARD_SETTINGS.map((name) => this.setting(name));
+    const url = this.pageUrl();
+    if (!channel || !message || !url) return;
+    const response = await discordApi(this.env, 'PATCH', `/channels/${channel}/messages/${message}`, boardMessage(await this.roster(), url));
+    if (response.status === 403 || response.status === 404) {
+      // Someone deleted the message, or anvil can't see the channel any more: stop until /board is run again.
+      if (this.setting('boardMessage') === message) this.clearBoard();
+      return;
+    }
+    // Anything else (Discord busy, rate limited) throws, and the alarm is retried.
+    if (!response.ok) throw new Error(`Discord answered ${response.status} to a board edit.`);
   }
 }

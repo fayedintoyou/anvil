@@ -1,10 +1,12 @@
 // End-to-end run against `wrangler dev` (started here on a fresh store unless BASE is set). Discord is
 // played by this script: it signs interactions with its own key, as Discord would, for three people in
 // one server, then opens the guild page in real Chrome at phone and desktop sizes. Screenshots land in
-// e2e/shots/. Needs a built UI (npm run build) and Chrome (CHROME=/path/to/chrome).
+// e2e/shots/. Needs a built UI (npm run build) and Chrome (CHROME=/path/to/chrome). Discord's REST API,
+// which the board posts to, is played by a small server here too.
 
 import { spawn } from 'node:child_process';
 import { generateKeyPairSync, sign } from 'node:crypto';
+import { createServer } from 'node:http';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,15 +24,55 @@ mkdirSync(SHOTS, { recursive: true });
 const { publicKey, privateKey } = generateKeyPairSync('ed25519');
 const PUBLIC_HEX = Buffer.from(publicKey.export({ format: 'jwk' }).x, 'base64url').toString('hex');
 
+const CHANNEL = '700000000000000001';
+const LOCKED = '700000000000000002'; // a channel anvil hasn't been let into
+
+/** Discord's REST API, as far as the board uses it: records each call, and answers as Discord would. */
+async function fakeDiscord() {
+  const calls = [];
+  let posted = 0;
+  const http = createServer(async (req, res) => {
+    let text = '';
+    for await (const chunk of req) text += chunk;
+    calls.push({ method: req.method, path: req.url, auth: req.headers.authorization, body: text ? JSON.parse(text) : undefined });
+    const send = (status, body) => {
+      res.writeHead(status, { 'content-type': 'application/json' });
+      res.end(body === undefined ? undefined : JSON.stringify(body));
+    };
+    if (req.url.includes(`/channels/${LOCKED}/`)) return send(403, { code: 50013, message: 'Missing Permissions' });
+    if (req.method === 'POST') return send(200, { id: `80000000000000000${++posted}` });
+    if (req.method === 'DELETE') return send(204);
+    return send(200, {});
+  });
+  await new Promise((resolve) => http.listen(0, '127.0.0.1', resolve));
+  return {
+    calls,
+    url: `http://127.0.0.1:${http.address().port}`,
+    close: () => http.close(),
+    /** The first call so far, or soon, that matches. */
+    async waitFor(match, what) {
+      for (let waited = 0; waited < 10_000; waited += 50) {
+        const call = calls.find(match);
+        if (call) return call;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      assert.fail(`Discord never got ${what}`);
+    },
+  };
+}
+
 let BASE = process.env.BASE;
 let server;
 let store;
+let discord;
 if (!BASE) {
+  discord = await fakeDiscord();
   store = mkdtempSync(join(tmpdir(), 'anvil-e2e-'));
   const port = 8790 + Math.floor(Math.random() * 200);
   BASE = `http://127.0.0.1:${port}`;
   const args = ['wrangler', 'dev', '--port', String(port), '--ip', '127.0.0.1', '--persist-to', store];
-  server = spawn('npx', [...args, '--var', `DISCORD_PUBLIC_KEY:${PUBLIC_HEX}`], {
+  const vars = [`DISCORD_PUBLIC_KEY:${PUBLIC_HEX}`, `DISCORD_API:${discord.url}`, 'DISCORD_BOT_TOKEN:test-token', 'BOARD_DELAY_MS:300'];
+  server = spawn('npx', [...args, ...vars.flatMap((v) => ['--var', v])], {
     env: { ...process.env, WRANGLER_SEND_METRICS: 'false' },
     stdio: ['ignore', 'pipe', 'pipe'],
     // Its own process group, so stopping it stops wrangler and workerd under npx too.
@@ -70,23 +112,24 @@ async function post(body, { signature } = {}) {
   });
 }
 
-function interaction(who, type, name, options) {
+function interaction(who, type, name, options, channel = CHANNEL) {
   const p = people[who];
   return {
     type,
     guild_id: GUILD,
+    channel_id: channel,
     member: { nick: p.name, permissions: p.permissions, user: { id: p.id, username: p.name.toLowerCase() } },
     data: { name, options },
   };
 }
 
 const opts = (values) =>
-  Object.entries(values).map(([name, value]) => ({ name, type: typeof value === 'number' ? 4 : 3, value }));
+  Object.entries(values).map(([name, value]) => ({ name, type: { number: 4, boolean: 5 }[typeof value] ?? 3, value }));
 
 /** A slash command: `/prof set …` is run('faye', 'prof', 'set', {…}). */
-async function run(who, name, sub, values = {}) {
+async function run(who, name, sub, values = {}, { channel } = {}) {
   const options = sub ? [{ name: sub, type: 1, options: opts(values) }] : opts(values);
-  const response = await post(interaction(who, 2, name, options));
+  const response = await post(interaction(who, 2, name, options, channel));
   assert.equal(response.status, 200, `/${name} ${sub ?? ''} answered ${response.status}`);
   const body = await response.json();
   assert.equal(body.type, 4);
@@ -230,6 +273,52 @@ try {
   await p2.goto(`${BASE}/`);
   await shot(p2, '04-home-phone');
 
+  // The board: one message in a channel, edited as things change. Only with this run's own wrangler dev,
+  // whose Discord API is the stand-in above.
+  if (discord) {
+    r = await run('faye', 'board');
+    assert.match(r.text, /needs Manage Server/);
+    r = await run('officer', 'board', null, {}, { channel: LOCKED });
+    assert.match(r.text, /can’t post here[\s\S]*View Channel, Send Messages and Embed Links/, 'a channel anvil can’t post in says what to fix');
+    r = await run('officer', 'board');
+    assert.match(r.text, new RegExp(`board is up in <#${CHANNEL}>`));
+    const first = discord.calls.find((c) => c.method === 'POST' && c.path === `/channels/${CHANNEL}/messages`);
+    assert.equal(first.auth, 'Bot test-token');
+    const [embed] = first.body.embeds;
+    assert.equal(embed.title, 'Lamplight Crafters');
+    assert.ok(embed.url.endsWith(pagePath), 'the board links the guild page');
+    assert.deepEqual(
+      embed.fields.find((f) => f.name.startsWith('Tailoring')),
+      { name: 'Tailoring · 2', value: 'Thalia 255 · Morwen 90' },
+      'crafters, highest skill first',
+    );
+    assert.deepEqual(first.body.allowed_mentions, { parse: [] });
+
+    await run('faye', 'prof', 'set', { character: 'Thalia', profession: 'cooking', skill: 160 });
+    await run('faye', 'prof', 'set', { character: 'Thalia', profession: 'cooking', skill: 170 });
+    const edit = await discord.waitFor(
+      (c) => c.method === 'PATCH' && c.path === `/channels/${CHANNEL}/messages/800000000000000001`,
+      'an edit to the board',
+    );
+    const cooking = edit.body.embeds[0].fields.find((f) => f.name.startsWith('Cooking'));
+    assert.match(cooking.value, /Thalia 170/, 'the board catches up with a burst of changes');
+    assert.equal(discord.calls.filter((c) => c.method === 'PATCH').length, 1, 'in one edit');
+
+    r = await run('officer', 'board', null, {}, { channel: '700000000000000003' });
+    assert.match(r.text, /board is up in <#700000000000000003>/);
+    await discord.waitFor(
+      (c) => c.method === 'DELETE' && c.path === `/channels/${CHANNEL}/messages/800000000000000001`,
+      'the old board taken down when it moves',
+    );
+    r = await run('officer', 'board', null, { stop: true });
+    assert.match(r.text, /Took the board down/);
+    await discord.waitFor((c) => c.method === 'DELETE' && c.path.endsWith('/800000000000000002'), 'the board taken down');
+    const before = discord.calls.length;
+    await run('faye', 'prof', 'set', { character: 'Thalia', profession: 'cooking', skill: 150 });
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    assert.equal(discord.calls.length, before, 'with no board, changes don’t call Discord');
+  }
+
   // A reply that would pass Discord's 2,000 characters ends at a whole line instead.
   for (const name of ['Aela', 'Brinn', 'Cass', 'Dov', 'Eir', 'Fen', 'Gale', 'Hest', 'Ivo', 'Jun', 'Kell', 'Lio', 'Mara']) {
     await run('faye', 'prof', 'set', { character: name, profession: 'cooking', skill: 300 });
@@ -253,6 +342,7 @@ try {
   console.log(`ok: ${pageUrl}`);
 } finally {
   await browser.close();
+  discord?.close();
   if (server) {
     try {
       process.kill(-server.pid, 'SIGTERM');

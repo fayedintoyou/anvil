@@ -39,9 +39,18 @@ local Worker, point the Interactions Endpoint URL at a tunnel (`cloudflared tunn
 http://localhost:8787`) with `/interactions` on the end, and set it back afterwards. `npm run test:e2e`
 needs none of this: it makes its own key and signs as Discord does.
 
+## The board
+
+`/board` (Manage Server) posts a message in the channel it's run in, and anvil edits it about 30 seconds
+after any change. This is the one place anvil acts as the bot, so the Worker holds `DISCORD_BOT_TOKEN`,
+which the deploy puts there from the repository secret. In that channel anvil's role needs **View
+Channel**, **Send Messages** and **Embed Links** (channel settings → Permissions → add anvil); `/board`
+says so if it can't post. Running `/board` again moves it, `/board stop:True` takes it down, and deleting
+the message by hand stops the edits too.
+
 ## Commands
 
-The list lives in `worker/commands.ts`. After changing it, deploy, then run `npm run register` again.
-Global changes reach every server within about an hour; a server-only registration shows at once, but
-then appears twice next to the global one, so remove it once you're done testing (register an empty list:
-edit the script, or use the developer portal).
+The list lives in `worker/commands.ts`. Each deploy of `main` registers it, globally: changes reach every
+server within about an hour. A server-only registration (`npm run register -- <server>`) shows at once,
+but then appears twice next to the global one, so remove it once you're done testing (register an empty
+list: edit the script, or use the developer portal).

@@ -83,6 +83,12 @@ export async function command(env: Env, i: Interaction, origin: string) {
     return message(mineText(roster.characters.filter((c) => c.owner === actor.id)));
   }
 
+  if (name === 'board') {
+    if (get(options, 'stop') === true) return reply(await g.stopBoard(actor));
+    if (!i.channel_id) return message('Run /board in the channel the board should go in.');
+    return reply(await g.setBoard(actor, i.guild_id, i.channel_id, origin));
+  }
+
   if (name === 'anvil') {
     const title = get(options, 'title');
     let named = '';

@@ -77,6 +77,11 @@ jobs:
             sleep 10
           done
           echo "::error::https://anvil.fayelore.com/ answered $code"; exit 1
+      # The board posts and edits a message as the bot, so the Worker holds the token too. Put from here, so
+      # the token only ever lives in the repository secret.
+      - name: Give the Worker the bot token
+        if: steps.secrets.outputs.ready == 'true' && env.DISCORD_BOT_TOKEN != ''
+        run: printf '%s' "$DISCORD_BOT_TOKEN" | npx wrangler secret put DISCORD_BOT_TOKEN
       # Registering is idempotent (a PUT of the whole list), so every deploy keeps Discord's commands in
       # step with worker/commands.ts. Skipped until the DISCORD_BOT_TOKEN repository secret is set.
       - name: Register slash commands
