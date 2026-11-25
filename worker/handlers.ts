@@ -30,6 +30,8 @@ import {
 } from './format';
 import { COOLDOWNS, recipeFromLink } from '../src/core/crafting';
 import type { RequestAction } from './guild-object';
+import { raid as raidByKey } from '../src/core/raids';
+import { raidPrep, readMuster, type Muster } from './raid';
 
 const get = (options: Option[], name: string) => options.find((o) => o.name === name)?.value;
 
@@ -146,6 +148,22 @@ export async function command(env: Env, i: Interaction, origin: string) {
     if (!r) return message('I couldn’t find that recipe. Pick one from the list as you type.');
     if (sub === 'add') return reply(await g.setBounty(actor, r.id, String(get(options, 'reward') ?? '').trim()));
     if (sub === 'remove') return reply(await g.removeBounty(actor, r.id));
+  }
+
+  if (name === 'raid' && sub === 'prep') {
+    const raid = raidByKey(String(get(options, 'raid') ?? ''));
+    if (!raid) return message('Pick a raid from the list.');
+    const link = get(options, 'muster');
+    let from: Muster | undefined;
+    if (typeof link === 'string' && link.trim()) {
+      const read = await readMuster(env, link);
+      if ('error' in read) return message(read.error);
+      from = read;
+    }
+    const heads = Number(get(options, 'raiders') ?? 0) || from?.people || raid.size;
+    const { content, components } = raidPrep(raid, (await g.roster()).characters, heads, from);
+    const posted = message(content, { ephemeral: false });
+    return { ...posted, data: { ...posted.data, components } };
   }
 
   if (name === 'alt') return message(altText(await g.roster()), { ephemeral: false });
@@ -266,6 +284,18 @@ const NOTE = 'note';
 export async function component(env: Env, i: Interaction, later: (work: Promise<unknown>) => void) {
   const actor = actorOf(i);
   const m = /^req:(\d+):(\w+)$/.exec(i.data?.custom_id ?? '');
+  // A raid prep's button: post a request for that many, as if they'd run /want.
+  const prep = /^prep:(\d+):(\d+)$/.exec(i.data?.custom_id ?? '');
+  if (prep && i.guild_id && actor) {
+    const r = recipeById(Number(prep[1]));
+    if (!r) return message('That recipe isn’t known any more.');
+    const g = guild(env, i);
+    const quantity = Math.min(Number(prep[2]), 200);
+    const { text, mention } = wantText(r, whoCan(r, (await g.roster()).characters), actor.id, 'for the raid', quantity);
+    const { content, components } = requestMessage(await g.openRequest(actor, r.id, text, quantity));
+    const posted = message(content, { ephemeral: false, mention });
+    return { ...posted, data: { ...posted.data, components } };
+  }
   if (m?.[2] === NOTE) {
     return modal(`reqnote:${m[1]}`, 'A note on your request', 'Like “free for guild” or “bring the mats”', 'Free for guild');
   }

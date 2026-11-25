@@ -39,6 +39,9 @@ async function fakeDiscord() {
       res.writeHead(status, { 'content-type': 'application/json' });
       res.end(body === undefined ? undefined : JSON.stringify(body));
     };
+    // muster's API, for /raid prep: one poll with 14 people.
+    const poll = /^\/api\/polls\/(\w+)$/.exec(req.url);
+    if (poll) return poll[1] === 'abcd2345' ? send(200, { poll: { name: 'Thursday BWL' }, people: Array.from({ length: 14 }, (_, n) => ({ id: `p${n}` })) }) : send(404, { error: 'missing' });
     if (req.url.includes(`/channels/${LOCKED}/`)) return send(403, { code: 50013, message: 'Missing Permissions' });
     if (req.url === '/users/@me/channels') return send(200, { id: `dm-${JSON.parse(text).recipient_id}` });
     if (req.method === 'POST') return send(200, { id: `80000000000000000${++posted}` });
@@ -71,7 +74,7 @@ async function startWrangler(vars = []) {
   const store = mkdtempSync(join(tmpdir(), 'anvil-e2e-'));
   const port = 8790 + Math.floor(Math.random() * 200);
   const args = ['wrangler', 'dev', '--port', String(port), '--ip', '127.0.0.1', '--persist-to', store];
-  const all = [`DISCORD_PUBLIC_KEY:${PUBLIC_HEX}`, `DISCORD_API:${discord.url}`, 'DISCORD_BOT_TOKEN:test-token', 'BOARD_DELAY_MS:300', ...vars];
+  const all = [`DISCORD_PUBLIC_KEY:${PUBLIC_HEX}`, `DISCORD_API:${discord.url}`, 'DISCORD_BOT_TOKEN:test-token', 'BOARD_DELAY_MS:300', `MUSTER_API:${discord.url}`, ...vars];
   const proc = spawn('npx', [...args, ...all.flatMap((v) => ['--var', v])], {
     env: { ...process.env, WRANGLER_SEND_METRICS: 'false' },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -89,8 +92,14 @@ async function startWrangler(vars = []) {
     proc.stdout.on('data', onData);
     proc.stderr.on('data', onData);
   });
+  // Kept for when something fails: what the Worker logged.
+  const log = [];
+  const keep = (d) => log.push(...String(d).split('\n').filter(Boolean)) && log.splice(0, Math.max(0, log.length - 80));
+  proc.stdout.on('data', keep);
+  proc.stderr.on('data', keep);
   return {
     base: `http://127.0.0.1:${port}`,
+    log,
     stop() {
       try {
         process.kill(-proc.pid, 'SIGTERM');
@@ -516,6 +525,26 @@ try {
   assert.ok(!r.ephemeral);
   assert.match(r.text, /^\*\*Professions the guild is short of\*\*/);
   assert.match(r.text, /- Blacksmithing: nobody/);
+
+  // Raid prep, counting heads from a muster poll.
+  r = await run('officer', 'raid', 'prep', { raid: 'bwl', muster: 'https://muster.fayelore.com/e/abcd2345' });
+  assert.ok(!r.ephemeral, 'raid prep is posted for everyone');
+  assert.match(r.text, /^\*\*Blackwing Lair prep\*\* · 14 signed up on “Thursday BWL”/, 'the headcount comes from muster');
+  assert.match(r.text, /- \*\*Flask of the Titans\*\* × 2 · Ysolde can make it\n {2}Takes [^\n]*Gromsblood/, 'one in ten, rounded up, with who and what it takes');
+  assert.match(r.text, /- \*\*Elixir of the Mongoose\*\* × 7 · \*\*nobody can make it yet\*\*/);
+  assert.match(r.text, /Resistance gear nobody can make yet: Enchant Cloak - Greater Fire Resistance \(Enchanting 300\)/);
+  const ask = r.data.components[0].components.find((c) => c.custom_id === 'prep:17635:2');
+  assert.ok(ask, 'a button to ask for what someone can make');
+  b = await press('brakka', ask.custom_id);
+  assert.ok(!b.updated, 'pressing it posts a new request');
+  assert.match(b.text, /looking for 2 × \[\*\*Flask of the Titans\*\*\][^\n]*: “for the raid”/);
+  assert.match(b.buttons[0], /^req:\d+:claim$/);
+  r = await run('officer', 'raid', 'prep', { raid: 'mc', raiders: 25 });
+  assert.match(r.text, /^\*\*Molten Core prep\*\* · 25 raiders/);
+  r = await run('officer', 'raid', 'prep', { raid: 'mc', muster: 'not a link' });
+  assert.match(r.text, /doesn’t look like a muster link/);
+  r = await run('officer', 'raid', 'prep', { raid: 'mc', muster: 'https://muster.fayelore.com/e/zzzz9999' });
+  assert.match(r.text, /muster doesn’t have that poll/);
   assert.deepEqual(r.data.allowed_mentions.users, [], 'nobody pings themselves');
 
   // A reply that would pass Discord's 2,000 characters ends at a whole line instead.
@@ -604,6 +633,9 @@ try {
   }
 
   console.log(`ok: ${pageUrl}`);
+} catch (e) {
+  for (const [n, s] of servers.entries()) console.error(`\n--- wrangler dev ${n + 1}, last lines ---\n${s.log.join('\n')}`);
+  throw e;
 } finally {
   await browser.close();
   discord?.close();

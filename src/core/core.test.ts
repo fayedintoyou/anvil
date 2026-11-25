@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PROFESSIONS, MAX_SKILL } from './types';
 import { RECIPES, searchRecipes } from './recipes';
+import { RAIDS } from './raids';
 
 // The recipe list is generated (scripts/recipes.mjs) from two addons' data; these checks catch a source
 // changing shape under a rebuild. Behaviour is covered end to end in e2e/run.mjs.
@@ -27,6 +28,11 @@ describe('recipe list', () => {
     // Recipe Registry gives these thresholds of 1/260/290/320 and 1/280/282/285 (see scripts/recipes.mjs).
     expect(RECIPES.find((r) => r.name === 'Runecloth Bandage')?.skill).toBe(260);
     expect(RECIPES.find((r) => r.name === 'Tinker: Teleport')?.skill).toBe(280);
+  });
+
+  it('has every recipe the raid table names', () => {
+    const names = new Set(RECIPES.map((r) => r.name));
+    for (const r of RAIDS) for (const name of [...r.needs.map((n) => n.recipe), ...r.gear]) expect(names.has(name), name).toBe(true);
   });
 
   it('puts names that start with the search first', () => {

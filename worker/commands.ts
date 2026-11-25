@@ -2,6 +2,7 @@
 // (scripts/register.ts), so it imports nothing that Node can't load on its own.
 
 import { MAX_NAME, MAX_SKILL, PROFESSIONS } from '../src/core/types.ts';
+import { RAIDS } from '../src/core/raids.ts';
 
 const STRING = 3;
 const INTEGER = 4;
@@ -143,6 +144,22 @@ export const COMMANDS = [
       },
       { name: 'remove', description: 'Take a bounty down (needs Manage Server)', type: SUBCOMMAND, options: [recipe('The recipe')] },
       { name: 'list', description: 'Open bounties, and who found the rest', type: SUBCOMMAND },
+    ],
+  },
+  {
+    name: 'raid',
+    description: 'Raid consumables: what a raid needs, who can make it, and buttons to ask',
+    options: [
+      {
+        name: 'prep',
+        description: 'What the guild’s crafters need to make for a raid',
+        type: SUBCOMMAND,
+        options: [
+          { name: 'raid', description: 'Which raid', type: STRING, required: true, choices: RAIDS.map((r) => ({ name: r.name, value: r.key })) },
+          { name: 'muster', description: 'The muster poll for it, to count who’s coming', type: STRING, required: false, max_length: 200 },
+          { name: 'raiders', description: 'How many are coming, if there’s no muster poll', type: INTEGER, required: false, min_value: 5, max_value: 40 },
+        ],
+      },
     ],
   },
   {

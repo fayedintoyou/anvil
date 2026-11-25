@@ -85,6 +85,7 @@ export const HELP = [
   '- `/recipe bulk`: paste a whole list at once. `/recipe edit`: a private page to tick them off.',
   '- `/whocan`: who can make something. `/want`: ask for it, pinging the people who can; they press a button to take it on.',
   '- `/bounty`: recipes the guild wants found. `/level`: what still skills you up. `/alt`: what the guild is short of.',
+  '- `/raid prep`: what a raid needs from the crafters, with a muster poll’s headcount.',
   '- `/cooldown used`: after a Mooncloth, transmute or Salt Shaker, so anvil can tell you when it’s ready.',
   '- `/crafters`: everyone with a profession. `/mine`: what you’ve logged.',
   '- `/board`: a message in a channel that anvil keeps up to date (Manage Server).',

@@ -23,6 +23,8 @@
   wowhead` (item names and cooldown lengths from Wowhead's Forever tooltips). `npm run audit` checks the list.
 - `/recipe edit` links (`/e/<server>/<token>`) act as the person who asked, for two hours. Treat the token
   like a password: no-store, noindex, no referrer, and every save goes through the same ownership checks.
+- `/raid prep` reads muster's public poll API through the `MUSTER` service binding (muster is its own
+  repo and Worker). The raid table is `src/core/raids.ts`; the unit test checks its recipe names.
 - Renaming or replacing the Durable Object class needs a new entry in `migrations` in `wrangler.jsonc`.
   After changing bindings, run `npm run types`.
 - Before pushing: `npm test`, `npm run typecheck`, and `npm run test:e2e`. For any change to how the page

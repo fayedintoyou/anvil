@@ -25,6 +25,9 @@ no addon to install and nothing to export from the game:
   each profession shows how much of it the guild covers. **`/bounty`** puts a wanted recipe on the board
   and calls out whoever brings it in. Every Sunday a digest: skill-ups, recipes learned, requests
   filled, and a crafter of the week.
+- **`/raid prep`**: what a raid needs from the crafters (resistance potions, flasks, healing and mana)
+  for its headcount, taken from a muster poll's link, with who can make each and a button to ask. Lists
+  resistance gear nobody can make yet.
 - **Reminders**: if someone's characters go a month without an update, anvil messages them once to check.
   `/mine reminders:False` turns that off.
 - **`/whocan`**: who can make something, answered in the channel. It names who has logged it or has the

@@ -21,6 +21,9 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GuildObject"] }],
 
+  // muster (muster.fayelore.com), for /raid prep's headcount: Worker to Worker, on the same account.
+  "services": [{ "binding": "MUSTER", "service": "muster" }],
+
   // DISCORD_PUBLIC_KEY (the application's public key, from the Discord developer portal) is a secret:
   // `wrangler secret put DISCORD_PUBLIC_KEY`. Locally it comes from .dev.vars.
 
