@@ -1,0 +1,268 @@
+/* anvil: a room of fayelore.com. The same night, lamp and moon as the room, the same Fraunces and
+   Plex Mono. The one loud thing is the lamp-lit skill bars; everything around them stays quiet. */
+
+:root {
+  --night: #07060b;
+  --floor: #0c0a10;
+  --wall: #121019;
+  --wall-2: #1a1622;
+  --wall-3: #262030;
+  --ink: #e9e2d6;
+  --muted: #8f8698;
+  --dim: #5a5262;
+  --line: rgba(233, 226, 214, 0.08);
+  --line-strong: rgba(233, 226, 214, 0.17);
+  --brass: rgba(236, 196, 150, 0.62);
+  --lamp: #ffb35c;
+  --lamp-hot: #ffd9a6;
+  --lamp-soft: rgba(255, 179, 92, 0.16);
+  --moon: #c9d4ff;
+  --moon-soft: rgba(201, 212, 255, 0.16);
+  --accent: #e0707a;
+  --serif: 'Fraunces Variable', 'Iowan Old Style', Georgia, serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  --radius: 10px;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; background: var(--night); color: var(--ink); }
+body {
+  font-family: var(--serif);
+  font-variation-settings: 'SOFT' 100, 'WONK' 0;
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+a { color: inherit; text-decoration-color: var(--lamp); text-underline-offset: 3px; }
+a:hover { color: var(--lamp); }
+::selection { background: var(--lamp); color: var(--night); }
+:focus-visible { outline: 2px solid var(--lamp); outline-offset: 2px; }
+button { font: inherit; color: inherit; }
+button, a, label, summary { -webkit-tap-highlight-color: transparent; }
+p { margin: 0 0 0.75em; }
+h1, h2, h3 { margin: 0; font-weight: 400; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+.muted { color: var(--muted); }
+
+/* The lamp in the corner, as on the room's inner pages. */
+body::before {
+  content: '';
+  position: fixed;
+  z-index: -1;
+  inset: -25vh -25vw auto auto;
+  width: 80vw;
+  height: 85vh;
+  background: radial-gradient(closest-side, rgba(255, 179, 92, 0.11), transparent);
+  pointer-events: none;
+}
+
+/* ---------- Frame ---------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: max(1rem, env(safe-area-inset-top)) 1.25rem 0.5rem;
+}
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-family: var(--serif);
+  font-size: 1.3rem;
+  font-variation-settings: 'SOFT' 100, 'WONK' 1, 'opsz' 72;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  padding-block: 0.4rem;
+}
+.wordmark svg { width: 1.15rem; height: 1.15rem; }
+.wordmark svg path { fill: var(--lamp); }
+.quiet-link { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.06em; color: var(--muted); text-decoration: none; }
+
+.page { max-width: 76rem; margin: 0 auto; padding: 1rem 1.25rem 4rem; }
+.page.narrow { max-width: 40rem; padding-top: 3rem; }
+
+.footer {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem max(2rem, env(safe-area-inset-bottom));
+  color: var(--dim);
+  font-size: 0.875rem;
+  border-top: 1px solid var(--line);
+}
+
+/* ---------- Type ---------- */
+
+.display {
+  font-size: clamp(2.6rem, 1.7rem + 4.2vw, 4.6rem);
+  font-weight: 300;
+  font-variation-settings: 'SOFT' 100, 'WONK' 1, 'opsz' 144;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  margin: 1.5rem 0 1.25rem;
+  max-width: 12ch;
+  text-wrap: balance;
+}
+.title {
+  font-size: clamp(2.1rem, 1.6rem + 2.6vw, 3.4rem);
+  font-weight: 300;
+  font-variation-settings: 'SOFT' 100, 'WONK' 1, 'opsz' 144;
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+  margin: 0.5rem 0 0.6rem;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.lede { font-size: 1.1875rem; line-height: 1.55; color: #d7cfc3; max-width: 34rem; }
+.lede-small { color: #d7cfc3; }
+.section-title {
+  font-size: 1.5rem;
+  font-variation-settings: 'SOFT' 100, 'WONK' 1, 'opsz' 72;
+  font-weight: 350;
+  margin: 0 0 1.25rem;
+}
+.panel-heading, .panel-title {
+  font-size: 1.3125rem;
+  font-variation-settings: 'SOFT' 100, 'WONK' 1, 'opsz' 48;
+  font-weight: 400;
+  margin: 0 0 0.75rem;
+}
+.sub-heading { font-size: 1.0625rem; font-weight: 500; margin: 1.75rem 0 0.5rem; }
+.hint { color: var(--muted); font-size: 0.875rem; line-height: 1.45; margin: 0.45rem 0 0; }
+.error { color: var(--accent); font-size: 0.9375rem; margin: 0.75rem 0; }
+.empty { color: var(--muted); padding: 1rem 0; max-width: 34rem; }
+.loading { color: var(--muted); }
+code {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  padding: 0.08em 0.4em;
+  border-radius: 5px;
+  background: var(--wall-2);
+  color: var(--lamp-hot);
+}
+.meta { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.03em; color: var(--muted); }
+
+/* ---------- Home ---------- */
+
+.steps { padding-left: 1.2rem; margin: 1.5rem 0; max-width: 34rem; }
+.steps li { margin-bottom: 0.8rem; }
+.steps li::marker { color: var(--lamp); }
+
+/* ---------- Guild page ---------- */
+
+.page section { margin-top: 2.75rem; }
+.panel {
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--floor);
+  max-width: 44rem;
+}
+.search {
+  width: 100%;
+  min-height: 2.9rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  background: var(--wall);
+  color: var(--ink);
+  font: inherit;
+}
+.search:focus { outline: none; border-color: var(--lamp); }
+.matches { list-style: none; margin: 0.5rem 0 0; padding: 0; }
+.matches button {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.matches button:hover, .matches button:focus-visible { background: var(--wall-2); }
+.answer { margin-top: 1rem; }
+.answer-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; }
+.crafters { list-style: none; padding: 0; margin: 0.25rem 0 0; }
+.crafters li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.75rem;
+  padding: 0.45rem 0;
+  border-top: 1px solid var(--line);
+}
+.crafters li strong { color: var(--lamp); font-weight: 500; }
+
+.prof-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16.5rem, 1fr));
+  gap: 0.9rem;
+}
+.prof {
+  padding: 1rem 1.1rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--floor);
+}
+.prof.none { background: transparent; border-style: dashed; }
+.prof.none h3 { color: var(--dim); }
+.prof h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 1.125rem;
+  font-variation-settings: 'SOFT' 100, 'WONK' 1, 'opsz' 36;
+  margin-bottom: 0.4rem;
+}
+.prof ul { list-style: none; padding: 0; margin: 0; }
+.prof li {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 7rem) 1fr 2.2rem auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+}
+.prof .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prof .skill { font-family: var(--mono); font-size: 0.8125rem; text-align: right; }
+.bar { height: 6px; border-radius: 999px; background: var(--wall-3); overflow: hidden; }
+.bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8a5a2b, var(--lamp));
+  box-shadow: 0 0 8px rgba(255, 179, 92, 0.45);
+}
+
+.missing { margin-top: 1rem; max-width: 44rem; }
+.missing details { border-top: 1px solid var(--line); }
+.missing details:last-child { border-bottom: 1px solid var(--line); }
+.missing summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  min-height: 2.9rem;
+  padding: 0.6rem 0.25rem;
+  cursor: pointer;
+  list-style: none;
+}
+.missing summary::-webkit-details-marker { display: none; }
+.missing summary:hover { color: var(--lamp); }
+.missing ul { list-style: none; padding: 0 0.25rem 1rem; margin: 0; max-height: 24rem; overflow-y: auto; }
+.missing li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.25rem 0; font-size: 0.9375rem; }
+.missing li .meta { white-space: nowrap; }

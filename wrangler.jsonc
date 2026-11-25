@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "anvil",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-11-20",
+  "observability": { "enabled": true },
+
+  // The guild page is a static build (vite build → dist). The Worker runs first for Discord's
+  // interactions, the API, and guild pages, whose HTML it fills in so links unfurl in Discord.
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/interactions", "/api/*", "/g/*"]
+  },
+
+  // One Durable Object per Discord server, holding its characters, skills and logged recipes in its own
+  // SQLite storage. SQLite-backed objects are on the Workers Free plan, and need nothing created beforehand.
+  "durable_objects": {
+    "bindings": [{ "name": "GUILDS", "class_name": "GuildObject" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GuildObject"] }],
+
+  // DISCORD_PUBLIC_KEY (the application's public key, from the Discord developer portal) is a secret:
+  // `wrangler secret put DISCORD_PUBLIC_KEY`. Locally it comes from .dev.vars.
+
+  // wrangler deploy attaches the subdomain and creates its DNS record, since fayelore.com is on Cloudflare.
+  "routes": [{ "pattern": "anvil.fayelore.com", "custom_domain": true }]
+}
