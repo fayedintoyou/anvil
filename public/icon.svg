@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Discord crops app icons to a circle: full-bleed night, the anvil kept inside the middle 70%. -->
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="56%" r="50%">
+      <stop offset="0" stop-color="#ffb35c" stop-opacity=".28"/>
+      <stop offset=".55" stop-color="#ffb35c" stop-opacity=".06"/>
+      <stop offset="1" stop-color="#ffb35c" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd9a6"/>
+      <stop offset=".35" stop-color="#ffb35c"/>
+      <stop offset="1" stop-color="#d9822f"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="#07060b"/>
+  <rect width="512" height="512" fill="url(#glow)"/>
+  <g transform="translate(256 286) scale(11) translate(-16 -17)">
+    <path d="M5 10h18c0 3 2 4.5 4 5-3 .5-5 1.5-6 3.5V21h2.5v3H8.5v-3H11v-2.5C8 17.5 6 15 5 10z" fill="url(#metal)"/>
+  </g>
+  <!-- sparks off the face -->
+  <g fill="#ffd9a6">
+    <circle cx="300" cy="150" r="7"/>
+    <circle cx="338" cy="118" r="5"/>
+    <circle cx="262" cy="112" r="4"/>
+    <circle cx="360" cy="160" r="3.5"/>
+  </g>
+</svg>

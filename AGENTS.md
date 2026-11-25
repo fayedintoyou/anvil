@@ -14,7 +14,8 @@
   writes free of any `await` between them, so two people at once can't lose a change.
 - Every request to `/interactions` must pass the Ed25519 signature check before anything else; Discord
   tests this when the endpoint is saved and disables endpoints that don't refuse bad signatures.
-- Changing `worker/commands.ts` means running `npm run register` (docs/discord.md) after it deploys.
+- Changing `worker/commands.ts` needs nothing more: each deploy of `main` registers the commands with
+  Discord (docs/discord.md).
 - Renaming or replacing the Durable Object class needs a new entry in `migrations` in `wrangler.jsonc`.
   After changing bindings, run `npm run types`.
 - Before pushing: `npm test`, `npm run typecheck`, and `npm run test:e2e`. For any change to how the page

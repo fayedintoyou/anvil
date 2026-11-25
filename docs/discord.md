@@ -7,8 +7,8 @@ Discord.
 
 ## Making it (once)
 
-1. At https://discord.com/developers/applications, **New Application**, named `anvil`. An icon can be
-   `public/favicon.svg` exported as a PNG.
+1. At https://discord.com/developers/applications, **New Application**, named `anvil`. Its icon is
+   `public/icon.png` (https://anvil.fayelore.com/icon.png), drawn in `public/icon.svg`.
 2. **General Information**: copy the **Application ID** (`1575223128731418746`) and the **Public Key**.
 3. Give the Worker the public key, without showing it:
    ```sh
