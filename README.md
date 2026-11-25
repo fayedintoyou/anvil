@@ -18,6 +18,8 @@ no addon to install and nothing to export from the game:
 - **`/board`**: a message in a channel of your choosing, with every profession's crafters, that anvil edits
   itself as people log things. Manage Server only.
 - **Your characters are yours**: only you, or someone with Manage Server, can change them.
+- **Name your character once**: leave `character:` out and anvil uses the one you last changed (or your
+  only one). `/prof forget` always needs the name.
 
 The recipe list holds 2,231 recipes across the twelve professions, built from two MIT-licensed addons'
 data (see [NOTICE.md](NOTICE.md)).

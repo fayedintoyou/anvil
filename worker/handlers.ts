@@ -45,9 +45,10 @@ export async function autocomplete(env: Env, i: Interaction) {
     const toChoice = (r: Recipe) => ({ name: `${recipeLabel(r)} · ${professionName(r.prof)} ${r.skill}`, value: String(r.id) });
     if (i.data?.name === 'whocan') return choices(searchRecipes(typed).map(toChoice));
 
-    // Adding or removing: only what makes sense for the character named so far.
-    const name = checkCharacterName(get(options, 'character'));
-    const roster = await guild(env, i).roster();
+    // Adding or removing: only what makes sense for the character named so far, or the one it'll default to.
+    const g = guild(env, i);
+    const name = checkCharacterName(get(options, 'character') ?? (await g.lastUsed(actor.id)));
+    const roster = await g.roster();
     const c = name.ok ? roster.characters.find((x) => nameKey(x.name) === nameKey(name.value)) : undefined;
     if (sub === 'remove') {
       return choices(searchRecipes(typed, (r) => Boolean(c?.recipes.includes(r.id))).map(toChoice));
@@ -102,7 +103,9 @@ export async function command(env: Env, i: Interaction, origin: string) {
     return message(`${named}${HELP}\n\nThe guild page: ${origin}/g/${i.guild_id}/${key}`);
   }
 
-  const character = checkCharacterName(get(options, 'character'));
+  const named = get(options, 'character') ?? (sub === 'forget' ? undefined : await g.lastUsed(actor.id));
+  if (named === undefined) return message('Which character? Add `character:` with its name once, and I’ll remember it after that.');
+  const character = checkCharacterName(named);
   if (!character.ok) return message(character.error);
 
   if (name === 'prof') {

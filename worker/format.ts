@@ -69,7 +69,7 @@ export function mineText(characters: Character[]): string {
 
 export const HELP = [
   'anvil keeps track of who in the guild can craft what.',
-  '- `/prof set`: your character’s profession and skill. Every recipe a trainer teaches up to that skill counts automatically.',
+  '- `/prof set`: your character’s profession and skill. Every recipe a trainer teaches up to that skill counts automatically. Name the character once; after that anvil uses the one you last changed.',
   '- `/recipe add`: recipes a skill doesn’t cover, like drops, vendor patterns, quests and campsite recipes.',
   '- `/whocan`: who can make something.',
   '- `/crafters`: everyone with a profession. `/mine`: what you’ve logged.',

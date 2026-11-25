@@ -180,6 +180,14 @@ try {
   assert.match(r.text, /Faye Ashenward: Cooking 5/, 'and names the same character next time');
   await run('faye', 'prof', 'forget', { character: 'faye ashenward' });
 
+  // Leaving the character out uses the one you last changed, or your only one.
+  r = await run('faye', 'prof', 'set', { profession: 'cooking', skill: 150 });
+  assert.match(r.text, /^Thalia: Cooking 150/, 'no name: the character you last changed');
+  r = await run('brakka', 'prof', 'set', { profession: 'cooking', skill: 1 });
+  assert.match(r.text, /Which character\?/, 'someone with no characters is asked which');
+  r = await run('faye', 'prof', 'forget', {});
+  assert.match(r.text, /Which character\?/, 'forgetting always needs the name');
+
   // Autocomplete: your own characters, and only recipes the character could have and needs to log.
   const chars = await suggest('faye', 'recipe', 'add', { character: 'th', recipe: '' }, 'character');
   assert.deepEqual(chars.map((c) => c.value), ['Thalia']);
@@ -204,6 +212,13 @@ try {
   assert.match(r.text, /Tailoring 255/, 'Manage Server can fix anyone’s entry');
   const officerChars = await suggest('officer', 'prof', 'set', { character: '' }, 'character');
   assert.equal(officerChars.length, 3, 'and sees everyone’s characters to pick from');
+  r = await run('officer', 'prof', 'set', { profession: 'cooking', skill: 1 });
+  assert.match(r.text, /Which character\?/, 'fixing someone’s entry doesn’t make it yours to default to');
+  r = await run('brakka', 'prof', 'set', { profession: 'tailoring', skill: 95 });
+  assert.match(r.text, /^Morwen: Tailoring 95/, 'with two characters, the one changed last');
+  const brakkaMoon = await suggest('brakka', 'recipe', 'add', { recipe: 'moonclo' }, 'recipe');
+  assert.equal(brakkaMoon.length, 0, 'autocomplete goes by that character too: Morwen can’t learn Mooncloth');
+  await run('brakka', 'prof', 'set', { character: 'Morwen', profession: 'tailoring', skill: 90 });
 
   // Asking.
   r = await run('brakka', 'whocan', null, { recipe: SILK_BOLT });

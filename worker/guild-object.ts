@@ -47,6 +47,7 @@ export class GuildObject extends DurableObject<Env> {
         character TEXT NOT NULL, recipe INTEGER NOT NULL, PRIMARY KEY (character, recipe)
       );
       CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS last_used (owner TEXT PRIMARY KEY, character TEXT NOT NULL);
     `);
   }
 
@@ -101,7 +102,8 @@ export class GuildObject extends DurableObject<Env> {
   }
 
   private touch(key: string, actor: Actor) {
-    // Someone with Manage Server editing another person's character leaves the owner as it was.
+    // Someone with Manage Server editing another person's character leaves the owner as it was, and doesn't
+    // make it the character they get when they leave the name out.
     this.sql.exec(
       'UPDATE characters SET updated = ?, owner_name = CASE WHEN owner = ? THEN ? ELSE owner_name END WHERE key = ?',
       Date.now(),
@@ -109,6 +111,22 @@ export class GuildObject extends DurableObject<Env> {
       actor.name,
       key,
     );
+    this.sql.exec(
+      'INSERT OR REPLACE INTO last_used (owner, character) SELECT owner, key FROM characters WHERE key = ? AND owner = ?',
+      key,
+      actor.id,
+    );
+  }
+
+  /** The character someone means when they leave the name out: the one of theirs they last changed, or
+   *  their only one. */
+  async lastUsed(owner: string): Promise<string | undefined> {
+    const last = this.sql
+      .exec<{ name: string }>('SELECT c.name FROM last_used l JOIN characters c ON c.key = l.character WHERE l.owner = ?', owner)
+      .toArray()[0]?.name;
+    if (last) return last;
+    const theirs = this.sql.exec<{ name: string }>('SELECT name FROM characters WHERE owner = ?', owner).toArray();
+    return theirs.length === 1 ? theirs[0].name : undefined;
   }
 
   async roster(): Promise<Roster> {
@@ -193,6 +211,7 @@ export class GuildObject extends DurableObject<Env> {
     this.sql.exec('DELETE FROM recipes WHERE character = ?', key);
     this.sql.exec('DELETE FROM skills WHERE character = ?', key);
     this.sql.exec('DELETE FROM characters WHERE key = ?', key);
+    this.sql.exec('DELETE FROM last_used WHERE character = ?', key);
     await this.boardChanged();
     return { ok: true, message: `Forgot ${shown} and everything logged for them.` };
   }

@@ -10,11 +10,13 @@ const BOOLEAN = 5;
 /** Manage Server: commands with this are hidden from everyone else (the Worker checks again). */
 const MANAGE_GUILD = String(1 << 5);
 
-const character = (description: string) => ({
+/** Left out, anvil uses the character this person last changed, so most people name it once. Discord
+ *  wants optional options after the required ones, which is why it comes last where it's optional. */
+const character = (required = false) => ({
   name: 'character',
-  description,
+  description: required ? 'Your character’s name' : 'Your character’s name; leave it out for the one you last changed',
   type: STRING,
-  required: true,
+  required,
   autocomplete: true,
   min_length: 2,
   max_length: MAX_NAME,
@@ -51,22 +53,22 @@ export const COMMANDS = [
         description: 'Set a character’s skill in a profession (adds the character if it’s new)',
         type: SUBCOMMAND,
         options: [
-          character('Your character’s name'),
           professionChoice,
           { name: 'skill', description: `Skill level, 1 to ${MAX_SKILL}`, type: INTEGER, required: true, min_value: 1, max_value: MAX_SKILL },
+          character(),
         ],
       },
       {
         name: 'drop',
         description: 'Remove a profession from a character',
         type: SUBCOMMAND,
-        options: [character('Your character’s name'), professionChoice],
+        options: [professionChoice, character()],
       },
       {
         name: 'forget',
         description: 'Remove a character and everything logged for it',
         type: SUBCOMMAND,
-        options: [character('Your character’s name')],
+        options: [character(true)],
       },
     ],
   },
@@ -78,13 +80,13 @@ export const COMMANDS = [
         name: 'add',
         description: 'Log a recipe a character has learned',
         type: SUBCOMMAND,
-        options: [character('Your character’s name'), recipe('The recipe')],
+        options: [recipe('The recipe'), character()],
       },
       {
         name: 'remove',
         description: 'Take a logged recipe off a character',
         type: SUBCOMMAND,
-        options: [character('Your character’s name'), recipe('The recipe')],
+        options: [recipe('The recipe'), character()],
       },
     ],
   },
