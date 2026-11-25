@@ -85,12 +85,15 @@ export async function command(env: Env, i: Interaction, origin: string) {
 
   if (name === 'anvil') {
     const title = get(options, 'title');
+    let named = '';
     if (typeof title === 'string' && title.trim()) {
-      const result = await g.setTitle(actor, title.trim().slice(0, 60));
+      const value = title.trim().slice(0, 60);
+      const result = await g.setTitle(actor, value);
       if (!result.ok) return message(result.error);
+      named = `The page is now called **${value}**.\n\n`;
     }
     const key = await g.pageKey();
-    return message(`${HELP}\n\nThe guild page: ${origin}/g/${i.guild_id}/${key}`);
+    return message(`${named}${HELP}\n\nThe guild page: ${origin}/g/${i.guild_id}/${key}`);
   }
 
   const character = checkCharacterName(get(options, 'character'));

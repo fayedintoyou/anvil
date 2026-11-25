@@ -181,11 +181,13 @@ try {
   r = await run('faye', 'anvil', null, { title: 'Lamplight' });
   assert.match(r.text, /needs Manage Server/);
   r = await run('officer', 'anvil', null, { title: 'Lamplight Crafters' });
+  assert.match(r.text, /^The page is now called \*\*Lamplight Crafters\*\*\./, 'renaming says so');
   // wrangler dev answers as the route's host, as production will; the page itself is loaded from here.
   const pagePath = /https?:\/\/anvil\.fayelore\.com(\/g\/\d+\/[a-z0-9]{12})/.exec(r.text)?.[1];
   assert.ok(pagePath, `the reply links the guild page: ${r.text}`);
   const pageUrl = `${BASE}${pagePath}`;
   const again = await run('faye', 'anvil');
+  assert.doesNotMatch(again.text, /now called/, 'no rename, no mention of one');
   assert.ok(again.text.includes(pagePath), 'the link stays the same');
 
   const html = await (await fetch(pageUrl)).text();
