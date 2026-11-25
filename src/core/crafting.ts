@@ -1,12 +1,14 @@
 import type { Character, ProfessionId, Recipe } from './types';
 import { recipe as recipeById } from './recipes';
-import reagentData from './reagents.json';
+import craftingData from './crafting.json';
 import wowhead from './wowhead.json';
 
-// What recipes take, and which have long cooldowns. Both are generated: reagents.json by `npm run
-// recipes`, wowhead.json (item names, cooldown lengths) by `npm run wowhead`.
+// What recipes take and make, how hard they are, and which have long cooldowns. All generated:
+// crafting.json by `npm run recipes`, wowhead.json (item names, cooldown lengths) by `npm run wowhead`.
 
-const REAGENTS = reagentData as unknown as Record<string, [number, number][]>;
+/** reagents [item, count], difficulty [orange, yellow, green, grey], made item, made count, teaching item */
+type Row = [[number, number][], number[], number, number, number];
+const CRAFTING = craftingData as unknown as Record<string, Row>;
 const ITEMS = wowhead.items as Record<string, string>;
 const COOLDOWN_S = wowhead.cooldowns as Record<string, number>;
 
@@ -17,13 +19,56 @@ export interface Reagent {
 }
 
 export function reagents(r: Recipe): Reagent[] {
-  return (REAGENTS[r.id] ?? []).map(([id, count]) => ({ id, name: ITEMS[id] ?? `item ${id}`, count }));
+  return (CRAFTING[r.id]?.[0] ?? []).map(([id, count]) => ({ id, name: ITEMS[id] ?? `item ${id}`, count }));
 }
 
-export function reagentText(r: Recipe): string {
+/** What it takes, for `times` crafts. */
+export function reagentText(r: Recipe, times = 1): string {
   return reagents(r)
-    .map((g) => (g.count > 1 ? `${g.count} ${g.name}` : g.name))
+    .map((g) => (g.count * times > 1 ? `${g.count * times} ${g.name}` : g.name))
     .join(', ');
+}
+
+/** How many one craft makes. */
+export function makesCount(r: Recipe): number {
+  return CRAFTING[r.id]?.[3] ?? 1;
+}
+
+export type Colour = 'orange' | 'yellow' | 'green' | 'grey';
+
+/** The recipe's colour at a skill: orange always gives a point, yellow usually, green sometimes, grey never. */
+export function colourAt(r: Recipe, skill: number): Colour {
+  const [, yellow, green, grey] = CRAFTING[r.id]?.[1] ?? [];
+  if (yellow === undefined) return 'grey';
+  if (skill < yellow) return 'orange';
+  if (skill < green) return 'yellow';
+  if (skill < grey) return 'green';
+  return 'grey';
+}
+
+const byMade = new Map<number, number[]>();
+const byTeacher = new Map<number, number>();
+for (const [id, row] of Object.entries(CRAFTING)) {
+  if (row[2]) byMade.set(row[2], [...(byMade.get(row[2]) ?? []), Number(id)]);
+  if (row[4]) byTeacher.set(row[4], Number(id));
+}
+
+/** The recipes a game item has to do with: the ones that make it, or the one it teaches. */
+export function recipesForItem(itemId: number): Recipe[] {
+  const ids = [...(byMade.get(itemId) ?? []), ...(byTeacher.has(itemId) ? [byTeacher.get(itemId)!] : [])];
+  return ids.map((id) => recipeById(id)).filter((r): r is Recipe => Boolean(r));
+}
+
+/** A recipe from something pasted: a Wowhead link to the spell, the item it makes or the pattern that
+ *  teaches it, or an item link copied out of the game (|Hitem:14342:…|h[Mooncloth]|h). */
+export function recipeFromLink(text: string): Recipe | undefined {
+  const spell = /wowhead\.com\/(?:[a-z-]+\/)?spell=(\d+)/i.exec(text);
+  if (spell) return recipeById(Number(spell[1]));
+  const item = /wowhead\.com\/(?:[a-z-]+\/)?item=(\d+)/i.exec(text) ?? /\|?Hitem:(\d+)/.exec(text);
+  if (item) return recipesForItem(Number(item[1]))[0];
+  const enchant = /\|?Henchant:(\d+)/.exec(text);
+  if (enchant) return recipeById(Number(enchant[1]));
+  return undefined;
 }
 
 /** A timer someone can be waiting on. Transmutes of the same length share one timer in the game, so they

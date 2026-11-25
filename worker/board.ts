@@ -52,7 +52,8 @@ export function boardMessage(roster: Roster, pageUrl: string, extras: BoardExtra
       value: lines(
         extras.requests.map((q) => {
           const what = recipeById(q.recipe)?.name ?? 'something';
-          return `${what} for ${q.asker_name} · ${q.status === 'claimed' ? `${q.claimer_name} is making it` : 'open'}`;
+          const many = q.quantity > 1 ? `${q.quantity} × ` : '';
+          return `${many}${what} for ${q.asker_name} · ${q.status === 'claimed' ? `${q.claimer_name} is making it` : 'open'}`;
         }),
       ),
     });

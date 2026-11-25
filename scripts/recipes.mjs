@@ -36,7 +36,7 @@ const automatic = new Set(
 );
 
 const rows = [];
-const reagents = {};
+const crafting = {};
 const skipped = { removed: 0, unnamed: 0, noSkill: 0, beyondCap: 0 };
 const counts = {};
 for (const [key, r] of Object.entries(registry)) {
@@ -74,13 +74,26 @@ for (const [key, r] of Object.entries(registry)) {
     : (LEARNED[r.sourceKind] ?? (r.sourceKind ? 'other' : r.recipeItemId ? 'other' : 'trainer'));
   counts[learned] = (counts[learned] ?? 0) + 1;
   rows.push([id, name, prof, skill, learned]);
-  if (r.reagents?.length) reagents[id] = r.reagents.map((g) => [g.itemId, g.count]);
+  // Difficulty: the skills where it turns orange, yellow, green and grey. A placeholder 1 (see above) is
+  // dropped, and grey is then as far past green as green is past yellow.
+  let difficulty = levels.length === 4 && levels[0] === 1 && !r.requiredSkill ? levels.slice(1) : levels.slice(0, 4);
+  if (difficulty.length === 3) difficulty = [...difficulty, difficulty[2] + (difficulty[2] - difficulty[1])];
+  crafting[id] = {
+    reagents: (r.reagents ?? []).map((g) => [g.itemId, g.count]),
+    difficulty,
+    makes: r.createdItemId ?? 0,
+    count: r.createdCount ?? 1,
+    taughtBy: r.recipeItemId ?? 0,
+  };
 }
 rows.sort((a, b) => a[0] - b[0]);
 writeFileSync(new URL('../src/core/recipes.json', import.meta.url), `[\n${rows.map((r) => JSON.stringify(r)).join(',\n')}\n]\n`);
-// What each recipe takes, as [item id, count]; the item names come from `npm run wowhead`.
+// Per recipe: reagents as [item id, count], difficulty (orange, yellow, green, grey), the item it makes
+// and how many, and the item that teaches it (0 for none). Item names come from `npm run wowhead`.
 writeFileSync(
-  new URL('../src/core/reagents.json', import.meta.url),
-  `{\n${Object.entries(reagents).map(([id, list]) => `"${id}":${JSON.stringify(list)}`).join(',\n')}\n}\n`,
+  new URL('../src/core/crafting.json', import.meta.url),
+  `{\n${Object.entries(crafting)
+    .map(([id, c]) => `"${id}":${JSON.stringify([c.reagents, c.difficulty, c.makes, c.count, c.taughtBy])}`)
+    .join(',\n')}\n}\n`,
 );
 console.log(`${rows.length} recipes`, counts, 'skipped', skipped);

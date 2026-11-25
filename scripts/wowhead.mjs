@@ -1,5 +1,5 @@
 // Builds src/core/wowhead.json from Wowhead's WoW Forever tooltips: the names of the items recipes take
-// (src/core/reagents.json has only their ids), and which recipes have a long cooldown, and how long.
+// (src/core/crafting.json has only their ids), and which recipes have a long cooldown, and how long.
 // Run `npm run wowhead` after `npm run recipes`. Answers are cached in .wowhead-cache.json.
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -7,14 +7,14 @@ import { gently, loadCache, wowheadTooltip } from './sources.mjs';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
 const recipes = read('../src/core/recipes.json');
-const reagents = read('../src/core/reagents.json');
+const crafting = read('../src/core/crafting.json');
 const cache = loadCache();
 
 // Cooldowns shorter than this (Transmute: Iron to Gold's hour) aren't worth tracking.
 const MIN_COOLDOWN_S = 20 * 3600;
 const UNIT_S = { min: 60, hr: 3600, hour: 3600, day: 86400 };
 
-const itemIds = [...new Set(Object.values(reagents).flatMap((list) => list.map(([id]) => id)))].sort((a, b) => a - b);
+const itemIds = [...new Set(Object.values(crafting).flatMap(([reagents]) => reagents.map(([id]) => id)))].sort((a, b) => a - b);
 const items = {};
 await gently(cache, itemIds, async (id) => {
   const item = await wowheadTooltip('item', id, cache);

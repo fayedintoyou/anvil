@@ -32,6 +32,8 @@ export interface RequestRow extends Record<string, SqlStorageValue> {
   claimer: string | null;
   claimer_name: string | null;
   status: RequestStatus;
+  quantity: number;
+  crafter_note: string | null;
   created: number;
   updated: number;
 }
@@ -107,6 +109,16 @@ export class GuildObject extends DurableObject<Env> {
         token TEXT PRIMARY KEY, actor TEXT NOT NULL, character TEXT NOT NULL, expires INTEGER NOT NULL
       );
     `);
+    this.addColumns('requests', { quantity: 'INTEGER NOT NULL DEFAULT 1', crafter_note: 'TEXT' });
+  }
+
+  /** Columns added to a table after it was first made: CREATE TABLE IF NOT EXISTS doesn't add them to a
+   *  guild's existing one. */
+  private addColumns(table: string, columns: Record<string, string>) {
+    const have = new Set(this.sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).toArray().map((c) => c.name));
+    for (const [name, type] of Object.entries(columns)) {
+      if (!have.has(name)) this.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+    }
   }
 
   private get sql() {
@@ -525,17 +537,22 @@ export class GuildObject extends DurableObject<Env> {
 
   // ---------- Requests (/want) ----------
 
-  async openRequest(actor: Actor, recipe: number, body: string): Promise<RequestRow> {
+  async openRequests(): Promise<RequestRow[]> {
+    return this.sql.exec<RequestRow>("SELECT * FROM requests WHERE status IN ('open', 'claimed')").toArray();
+  }
+
+  async openRequest(actor: Actor, recipe: number, body: string, quantity = 1): Promise<RequestRow> {
     const now = Date.now();
     const row = this.sql
       .exec<RequestRow>(
-        "INSERT INTO requests (recipe, asker, asker_name, body, status, created, updated) VALUES (?, ?, ?, ?, 'open', ?, ?) RETURNING *",
+        "INSERT INTO requests (recipe, asker, asker_name, body, status, created, updated, quantity) VALUES (?, ?, ?, ?, 'open', ?, ?, ?) RETURNING *",
         recipe,
         actor.id,
         actor.name,
         body,
         now,
         now,
+        quantity,
       )
       .one();
     await this.changed();
@@ -583,6 +600,17 @@ export class GuildObject extends DurableObject<Env> {
       )
       .one();
     await this.changed();
+    return { ok: true, row: updated };
+  }
+
+  /** The crafter's note on a request they've taken: a price, "free for guild", what to bring. */
+  async noteRequest(actor: Actor, id: number, note: string): Promise<{ ok: true; row: RequestRow } | { ok: false; error: string }> {
+    const row = this.sql.exec<RequestRow>('SELECT * FROM requests WHERE id = ?', id).toArray()[0];
+    if (!row || row.status !== 'claimed') return { ok: false, error: 'Only a request someone’s making can have a note.' };
+    if (row.claimer !== actor.id) return { ok: false, error: `Only ${row.claimer_name} can add a note to this one.` };
+    const updated = this.sql
+      .exec<RequestRow>('UPDATE requests SET crafter_note = ?, updated = ? WHERE id = ? RETURNING *', note || null, Date.now(), id)
+      .one();
     return { ok: true, row: updated };
   }
 

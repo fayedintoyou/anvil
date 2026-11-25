@@ -15,6 +15,10 @@ no addon to install and nothing to export from the game:
   checklist of every recipe the character could have.
 - **`/want`**: asks for something in the channel, with what it takes, and pings the people whose characters
   can make it. They press **I'll make it**, then **Done**, which pings the asker. Open ones are on the board.
+- **Links and batches**: `/whocan` and `/want` take a Wowhead link (spell, item or pattern) or an item link
+  from the game. `/want quantity:10` totals the materials.
+- **`/level`**: what still gives a character skill-ups, starting with things guildies have asked for.
+  **`/alt`**: which professions the guild is short of.
 - **`/cooldown used`** after a Mooncloth, a transmute or the Salt Shaker: anvil messages you when it's ready,
   and the board and `/cooldown list` show everyone's.
 - **Reminders**: if someone's characters go a month without an update, anvil messages them once to check.

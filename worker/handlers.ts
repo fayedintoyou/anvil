@@ -15,8 +15,19 @@ import {
   type Interaction,
   type Option,
 } from './discord';
-import { HELP, changesText, cooldownsText, craftersText, mineText, requestMessage, wantText, whoCanText } from './format';
-import { COOLDOWNS } from '../src/core/crafting';
+import {
+  HELP,
+  altText,
+  changesText,
+  cooldownsText,
+  craftersText,
+  levelText,
+  mineText,
+  requestMessage,
+  wantText,
+  whoCanText,
+} from './format';
+import { COOLDOWNS, recipeFromLink } from '../src/core/crafting';
 import type { RequestAction } from './guild-object';
 
 const get = (options: Option[], name: string) => options.find((o) => o.name === name)?.value;
@@ -25,6 +36,8 @@ const get = (options: Option[], name: string) => options.find((o) => o.name === 
  *  take the best match. */
 function pickRecipe(value: unknown, filter?: (r: Recipe) => boolean): Recipe | undefined {
   if (typeof value !== 'string') return undefined;
+  const linked = recipeFromLink(value);
+  if (linked && (!filter || filter(linked))) return linked;
   if (/^\d+$/.test(value)) {
     const r = recipeById(Number(value));
     if (r && (!filter || filter(r))) return r;
@@ -66,7 +79,11 @@ export async function autocomplete(env: Env, i: Interaction) {
 
   if (focused.name === 'recipe') {
     const toChoice = (r: Recipe) => ({ name: `${recipeLabel(r)} · ${professionName(r.prof)} ${r.skill}`, value: String(r.id) });
-    if (i.data?.name === 'whocan' || i.data?.name === 'want') return choices(searchRecipes(typed).map(toChoice));
+    if (i.data?.name === 'whocan' || i.data?.name === 'want') {
+      // A pasted Wowhead or game link: offer the recipe it points at.
+      const linked = recipeFromLink(typed);
+      return choices(linked ? [toChoice(linked)] : searchRecipes(typed).map(toChoice));
+    }
 
     // Adding or removing: only what makes sense for the character named so far, or the one it'll default to.
     const g = guild(env, i);
@@ -109,8 +126,9 @@ export async function command(env: Env, i: Interaction, origin: string) {
     const r = pickRecipe(get(options, 'recipe'));
     if (!r) return message('I couldn’t find that recipe. Pick one from the list as you type.');
     const note = String(get(options, 'note') ?? '').trim();
-    const { text, mention } = wantText(r, whoCan(r, (await g.roster()).characters), actor.id, note);
-    const { content, components } = requestMessage(await g.openRequest(actor, r.id, text));
+    const quantity = Number(get(options, 'quantity') ?? 1) || 1;
+    const { text, mention } = wantText(r, whoCan(r, (await g.roster()).characters), actor.id, note, quantity);
+    const { content, components } = requestMessage(await g.openRequest(actor, r.id, text, quantity));
     const reply = message(content, { ephemeral: false, mention });
     return { ...reply, data: { ...reply.data, components } };
   }
@@ -120,6 +138,8 @@ export async function command(env: Env, i: Interaction, origin: string) {
     if (!isProfessionId(prof)) return message('Pick a profession from the list.');
     return message(craftersText(prof, await g.roster()), { ephemeral: false });
   }
+
+  if (name === 'alt') return message(altText(await g.roster()), { ephemeral: false });
 
   if (name === 'cooldown' && sub === 'list') return message(cooldownsText(await g.cooldownList()), { ephemeral: false });
 
@@ -153,6 +173,15 @@ export async function command(env: Env, i: Interaction, origin: string) {
   if (named === undefined) return message('Which character? Add `character:` with its name once, and I’ll remember it after that.');
   const character = checkCharacterName(named);
   if (!character.ok) return message(character.error);
+
+  if (name === 'level') {
+    const prof = get(options, 'profession');
+    if (!isProfessionId(prof)) return message('Pick a profession from the list.');
+    const roster = await g.roster();
+    const c = roster.characters.find((x) => nameKey(x.name) === nameKey(character.value));
+    if (!c) return message(`Nobody’s logged a character called ${character.value} here yet.`);
+    return message(levelText(c, prof, await g.openRequests()));
+  }
 
   if (name === 'cooldown' && sub === 'used') {
     const hours = get(options, 'hours_left');
@@ -199,10 +228,18 @@ function reply(outcome: { ok: true; message: string } | { ok: false; error: stri
   return message(outcome.ok ? outcome.message : outcome.error);
 }
 
-/** The paste box's answer: every line matched to a recipe the character could have, then logged. */
+/** The paste box's answer: every line matched to a recipe the character could have, then logged. Or
+ *  the note a crafter puts on a request they've taken. */
 export async function modalSubmit(env: Env, i: Interaction) {
   const actor = actorOf(i);
   const id = i.data?.custom_id ?? '';
+  const noteFor = /^reqnote:(\d+)$/.exec(id);
+  if (noteFor && i.guild_id && actor) {
+    const result = await guild(env, i).noteRequest(actor, Number(noteFor[1]), modalText(i).trim().slice(0, 200));
+    if (!result.ok) return message(result.error);
+    const { content, components } = requestMessage(result.row);
+    return updateMessage(content, components);
+  }
   if (!i.guild_id || !actor || !id.startsWith('bulk:')) return message('That form has expired. Run the command again.');
   const name = id.slice('bulk:'.length);
   const { matched, unknown } = matchRecipeLines(modalText(i));
@@ -213,12 +250,16 @@ export async function modalSubmit(env: Env, i: Interaction) {
 }
 
 const ACTIONS: RequestAction[] = ['claim', 'unclaim', 'done', 'cancel'];
+const NOTE = 'note';
 
 /** A button on a /want post. The post is rewritten to match; finishing one also pings the asker, in a
  *  message of its own, since edits don't ping. That ping goes out after the reply, through `later`. */
 export async function component(env: Env, i: Interaction, later: (work: Promise<unknown>) => void) {
   const actor = actorOf(i);
   const m = /^req:(\d+):(\w+)$/.exec(i.data?.custom_id ?? '');
+  if (m?.[2] === NOTE) {
+    return modal(`reqnote:${m[1]}`, 'A note on your request', 'Like “free for guild” or “bring the mats”', 'Free for guild');
+  }
   if (!i.guild_id || !actor || !m || !ACTIONS.includes(m[2] as RequestAction)) return message('That button doesn’t work any more.');
   const result = await guild(env, i).requestAction(actor, Number(m[1]), m[2] as RequestAction);
   if (!result.ok) return message(result.error);

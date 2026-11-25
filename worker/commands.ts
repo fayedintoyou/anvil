@@ -42,7 +42,7 @@ export const COMMANDS = [
   {
     name: 'whocan',
     description: 'Who in the guild can craft something',
-    options: [recipe('What you want made')],
+    options: [recipe('What you want made (a Wowhead link works too)')],
   },
   {
     name: 'prof',
@@ -106,7 +106,8 @@ export const COMMANDS = [
     name: 'want',
     description: 'Ask the guild for something made: pings the people who can craft it',
     options: [
-      recipe('What you want made'),
+      recipe('What you want made (a Wowhead link works too)'),
+      { name: 'quantity', description: 'How many', type: INTEGER, required: false, min_value: 1, max_value: 200 },
       { name: 'note', description: 'Anything to add, like “I have the mats”', type: STRING, required: false, max_length: 200 },
     ],
   },
@@ -126,6 +127,15 @@ export const COMMANDS = [
         required: false,
       },
     ],
+  },
+  {
+    name: 'level',
+    description: 'What still gives skill-ups at your skill, starting with things guildies have asked for',
+    options: [professionChoice, character()],
+  },
+  {
+    name: 'alt',
+    description: 'Which professions the guild is short of, for a new alt',
   },
   {
     name: 'cooldown',

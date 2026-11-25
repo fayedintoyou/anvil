@@ -3,7 +3,8 @@ import { professionName } from '../src/core/professions';
 import type { WhoCan } from '../src/core/whocan';
 import { recipe as recipeById, wowheadUrl } from '../src/core/recipes';
 import { isStale } from '../src/core/stale';
-import { reagentText } from '../src/core/crafting';
+import { colourAt, makesCount, reagentText } from '../src/core/crafting';
+import { RECIPES } from '../src/core/recipes';
 import type { Changes, CooldownTimer, RequestRow } from './guild-object';
 import { buttons, type Button } from './discord';
 
@@ -89,11 +90,20 @@ export const HELP = [
 ].join('\n');
 
 /** /want: the ask, in the channel, pinging whoever can make it (never the person asking). */
-export function wantText(r: Recipe, result: WhoCan, askerId: string, note: string): { text: string; mention: string[] } {
+export function wantText(
+  r: Recipe,
+  result: WhoCan,
+  askerId: string,
+  note: string,
+  quantity = 1,
+): { text: string; mention: string[] } {
   const owners = [...new Set(result.crafters.map((c) => c.owner))].filter((id) => id !== askerId);
-  const lines = [`<@${askerId}> is looking for ${recipeLink(r)}${note ? `: “${note}”` : '.'}`];
-  const takes = reagentText(r);
-  if (takes) lines.push(`Takes: ${takes}`);
+  const what = quantity > 1 ? `${quantity} × ${recipeLink(r)}` : recipeLink(r);
+  const lines = [`<@${askerId}> is looking for ${what}${note ? `: “${note}”` : '.'}`];
+  // Some recipes make more than one (a craft of Heavy Runecloth Bandage might make several).
+  const crafts = Math.ceil(quantity / makesCount(r));
+  const takes = reagentText(r, crafts);
+  if (takes) lines.push(`Takes: ${takes}${crafts > 1 ? ` (${crafts} crafts)` : ''}`);
   if (owners.length) {
     const who = result.crafters.filter((c) => c.owner !== askerId).map((c) => c.name);
     lines.push(`${owners.map((id) => `<@${id}>`).join(' ')} can make it (${[...new Set(who)].join(', ')}).`);
@@ -139,6 +149,7 @@ export function requestMessage(q: RequestRow): { content: string; components: un
     status = `**<@${q.claimer}> is making it.**`;
     list = [
       { id: id('done'), label: 'Done', style: 'success' },
+      { id: id('note'), label: q.crafter_note ? 'Change note' : 'Add a note', style: 'secondary' },
       { id: id('unclaim'), label: 'Not making it', style: 'secondary' },
     ];
   } else if (q.status === 'done') {
@@ -148,7 +159,8 @@ export function requestMessage(q: RequestRow): { content: string; components: un
     status = '**Cancelled.**';
     list = [];
   }
-  return { content: `${q.body}\n${status}`, components: buttons(list) };
+  const note = q.crafter_note && q.status !== 'cancelled' ? `\n> ${q.claimer_name}: ${q.crafter_note}` : '';
+  return { content: `${q.body}\n${status}${note}`, components: buttons(list) };
 }
 
 export function cooldownsText(timers: CooldownTimer[]): string {
@@ -157,4 +169,57 @@ export function cooldownsText(timers: CooldownTimer[]): string {
   return timers
     .map((t) => `- **${t.character}** · ${t.name} · ${t.ends <= now ? 'ready' : `ready ${ago(t.ends)}`}`)
     .join('\n');
+}
+
+const COLOUR_WORD = { orange: 'orange', yellow: 'yellow', green: 'green', grey: 'grey' } as const;
+
+/** /level: what this character can make that still gives skill-ups, and of that, what guildies have
+ *  open requests for, which is the best place to spend the mats. */
+export function levelText(c: Character, prof: ProfessionId, requests: RequestRow[]): string {
+  const skill = c.skills[prof];
+  if (skill === undefined) return `${c.name} doesn’t have ${professionName(prof)} logged.`;
+  const known = RECIPES.filter(
+    (r) => r.prof === prof && r.skill <= skill && (r.learned === 'trainer' || c.recipes.includes(r.id)),
+  );
+  const useful = known
+    .map((r) => ({ r, colour: colourAt(r, skill) }))
+    .filter((x) => x.colour === 'orange' || x.colour === 'yellow')
+    .sort((a, b) => (a.colour === b.colour ? b.r.skill - a.r.skill : a.colour === 'orange' ? -1 : 1));
+  const lines = [`**${c.name}** · ${professionName(prof)} ${skill}`];
+  const asked = useful.filter((x) => requests.some((q) => q.recipe === x.r.id && q.status === 'open'));
+  if (asked.length) {
+    lines.push('Skill-ups someone’s asked for (see their /want):');
+    lines.push(...asked.slice(0, 8).map((x) => `- **${x.r.name}** · ${COLOUR_WORD[x.colour]}`));
+  }
+  const rest = useful.filter((x) => !asked.includes(x));
+  if (rest.length) {
+    lines.push(asked.length ? 'Other skill-ups:' : 'Still skill-ups:');
+    for (const colour of ['orange', 'yellow'] as const) {
+      const names = rest.filter((x) => x.colour === colour).map((x) => x.r.name);
+      if (names.length) lines.push(`- ${colour === 'orange' ? 'Orange (always)' : 'Yellow (usually)'}: ${list(names, 10)}`);
+    }
+  } else if (!asked.length) {
+    lines.push('Nothing known still gives skill-ups. Time to visit a trainer or find new recipes.');
+  }
+  const next = RECIPES.filter((r) => r.prof === prof && r.learned === 'trainer' && r.skill > skill).sort((a, b) => a.skill - b.skill)[0];
+  if (next) lines.push(`Next from a trainer: ${next.name} at ${next.skill}.`);
+  return lines.join('\n');
+}
+
+/** /alt: each profession's best skill in the guild, the thinnest first, for whoever is choosing. */
+export function altText(roster: Roster): string {
+  const rows = PROFESSIONS.map((p) => {
+    const skills = roster.characters.map((c) => c.skills[p.id]).filter((n): n is number => n !== undefined);
+    return { p, best: skills.length ? Math.max(...skills) : 0, count: skills.length, maxed: skills.filter((n) => n >= 300).length };
+  }).sort((a, b) => a.maxed - b.maxed || a.best - b.best || a.count - b.count);
+  const describe = (x: (typeof rows)[number]) =>
+    x.count ? `best ${x.best}, ${x.count} crafter${x.count === 1 ? '' : 's'}${x.maxed ? `, ${x.maxed} at 300` : ''}` : 'nobody';
+  const primary = rows.filter((x) => x.p.primary);
+  const short = primary.filter((x) => !x.maxed).slice(0, 3);
+  const lines = ['**Professions the guild is short of**, thinnest first:'];
+  lines.push(...primary.map((x) => `- ${x.p.name}: ${describe(x)}`));
+  const secondary = rows.filter((x) => !x.p.primary);
+  lines.push(`Secondary: ${secondary.map((x) => `${x.p.name} (${describe(x)})`).join(', ')}.`);
+  if (short.length) lines.push(`A new alt would help most with ${short.map((x) => x.p.name).join(' or ')}.`);
+  return lines.join('\n');
 }

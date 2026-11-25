@@ -178,8 +178,8 @@ async function submitModal(who, customId, text) {
   const i = interaction(who, 5);
   i.data = { custom_id: customId, components: [{ type: 1, components: [{ type: 4, custom_id: 'text', value: text }] }] };
   const body = await (await post(i)).json();
-  assert.equal(body.type, 4);
-  return { text: body.data.content, ephemeral: body.data.flags === 64 };
+  assert.ok(body.type === 4 || body.type === 7);
+  return { text: body.data.content, ephemeral: body.data.flags === 64, updated: body.type === 7 };
 }
 
 /** Autocomplete for the option being typed (`focus`), with the others already filled in. */
@@ -460,7 +460,14 @@ try {
   assert.ok(b.updated, 'taking a request on rewrites the post');
   assert.match(b.text, new RegExp(`<@${people.faye.id}> is making it`));
   assert.deepEqual(b.data.allowed_mentions, { parse: [] }, 'rewrites ping nobody');
-  const [done, unclaim] = b.buttons;
+  const [done, noteButton, unclaim] = b.buttons;
+  b = await press('faye', noteButton);
+  assert.equal(b.data.custom_id, `reqnote:${claim.split(':')[1]}`, 'the crafter’s note opens a pop-up');
+  r = await submitModal('brakka', b.data.custom_id, 'cheap');
+  assert.match(r.text, /Only Faye can add a note/);
+  r = await submitModal('faye', b.data.custom_id, 'Free for guild');
+  assert.ok(r.updated);
+  assert.match(r.text, /\n> Faye: Free for guild$/, 'the note shows under who’s making it');
   b = await press('officer', claim);
   assert.ok(!b.updated);
   assert.match(b.text, /Faye is already making it/);
@@ -478,6 +485,25 @@ try {
 
   r = await run('faye', 'want', null, { recipe: '17635' });
   assert.match(r.text, /Only your own characters can make it/);
+
+  // Links and batches: a Wowhead link to the item made, or to the spell, finds the recipe.
+  r = await run('brakka', 'whocan', null, { recipe: 'https://www.wowhead.com/forever/item=14342/mooncloth' });
+  assert.ok(r.text.startsWith('[**Mooncloth**]'), 'an item link finds the recipe that makes it');
+  const linked = await suggest('brakka', 'whocan', null, { recipe: 'https://www.wowhead.com/forever/spell=17635' }, 'recipe');
+  assert.deepEqual(linked.map((c) => c.value), ['17635']);
+  r = await run('brakka', 'want', null, { recipe: MOONCLOTH, quantity: 3 });
+  assert.match(r.text, /looking for 3 × \[\*\*Mooncloth\*\*\]/);
+  assert.match(r.text, /Takes: 6 Felcloth \(3 crafts\)/, 'what a batch takes');
+
+  // Levelling: what still gives points, with what someone's asked for first.
+  r = await run('faye', 'level', null, { profession: 'tailoring', character: 'Thalia' });
+  assert.match(r.text, /^\*\*Thalia\*\* · Tailoring 255/);
+  assert.match(r.text, /Skill-ups someone’s asked for[^\n]*\n- \*\*Mooncloth\*\* · orange/, 'an open request that’s also a skill-up comes first');
+  assert.doesNotMatch(r.text, /Orange \(always\): Mooncloth/, 'and isn’t listed twice');
+  r = await run('brakka', 'alt');
+  assert.ok(!r.ephemeral);
+  assert.match(r.text, /^\*\*Professions the guild is short of\*\*/);
+  assert.match(r.text, /- Blacksmithing: nobody/);
   assert.deepEqual(r.data.allowed_mentions.users, [], 'nobody pings themselves');
 
   // A reply that would pass Discord's 2,000 characters ends at a whole line instead.
