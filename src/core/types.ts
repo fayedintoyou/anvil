@@ -18,6 +18,8 @@ export const PROFESSIONS = [
 export type ProfessionId = (typeof PROFESSIONS)[number]['id'];
 export type Profession = (typeof PROFESSIONS)[number];
 
+/** A character name with its surname, in characters. */
+export const MAX_NAME = 32;
 export const MAX_SKILL = 300;
 export const MAX_PRIMARY = 2;
 

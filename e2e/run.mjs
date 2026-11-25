@@ -130,7 +130,12 @@ try {
   r = await run('faye', 'prof', 'set', { character: 'Thalia', profession: 'cooking', skill: 150 });
   assert.match(r.text, /Cooking 150/, 'secondary professions are on top of the two');
   r = await run('faye', 'prof', 'set', { character: 'Thalia 2', profession: 'cooking', skill: 1 });
-  assert.match(r.text, /2 to 12 letters/);
+  assert.match(r.text, /first name of 2 to 12 letters/);
+  r = await run('faye', 'prof', 'set', { character: 'faye  ashenward', profession: 'cooking', skill: 1 });
+  assert.match(r.text, /Faye Ashenward: Cooking 1/, 'a surname is kept, capitalised, spaces tidied');
+  r = await run('faye', 'prof', 'set', { character: 'Faye Ashenward', profession: 'cooking', skill: 5 });
+  assert.match(r.text, /Faye Ashenward: Cooking 5/, 'and names the same character next time');
+  await run('faye', 'prof', 'forget', { character: 'faye ashenward' });
 
   // Autocomplete: your own characters, and only recipes the character could have and needs to log.
   const chars = await suggest('faye', 'recipe', 'add', { character: 'th', recipe: '' }, 'character');

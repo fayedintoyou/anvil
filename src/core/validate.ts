@@ -1,16 +1,26 @@
-import { MAX_PRIMARY, MAX_SKILL, type Character, type ProfessionId } from './types';
+import { MAX_NAME, MAX_PRIMARY, MAX_SKILL, type Character, type ProfessionId } from './types';
 import { profession } from './professions';
 
 export type Checked<T> = { ok: true; value: T } | { ok: false; error: string };
 
-/** A WoW character name: 2 to 12 letters, shown capitalised the way the game shows it. */
+/** A WoW Forever character name: a first name of 2 to 12 letters, capitalised the way the game shows it,
+ *  and an optional surname of letter words (with ' or - inside), each word starting with a capital. */
 export function checkCharacterName(raw: unknown): Checked<string> {
-  const name = typeof raw === 'string' ? raw.trim().normalize('NFC') : '';
-  if (!/^\p{L}{2,12}$/u.test(name)) {
-    return { ok: false, error: 'A character name is 2 to 12 letters, with no spaces or numbers.' };
+  const words = typeof raw === 'string' ? raw.normalize('NFC').trim().split(/\s+/) : [];
+  const [first = '', ...surname] = words;
+  const fits =
+    /^\p{L}{2,12}$/u.test(first) &&
+    surname.every((w) => /^\p{L}+(?:['’-]\p{L}+)*$/u.test(w)) &&
+    words.join(' ').length <= MAX_NAME;
+  if (!fits) {
+    return {
+      ok: false,
+      error: `A character name is a first name of 2 to 12 letters, then a surname if you have one (${MAX_NAME} characters in all).`,
+    };
   }
-  const lower = name.toLocaleLowerCase();
-  return { ok: true, value: lower.charAt(0).toLocaleUpperCase() + lower.slice(1) };
+  const lower = first.toLocaleLowerCase();
+  const capital = (w: string) => w.charAt(0).toLocaleUpperCase() + w.slice(1);
+  return { ok: true, value: [capital(lower), ...surname.map(capital)].join(' ') };
 }
 
 export function nameKey(name: string): string {

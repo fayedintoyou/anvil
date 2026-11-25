@@ -1,7 +1,7 @@
 // anvil's slash commands, as Discord registers them. `npm run register` sends this list to Discord
 // (scripts/register.ts), so it imports nothing that Node can't load on its own.
 
-import { MAX_SKILL, PROFESSIONS } from '../src/core/types.ts';
+import { MAX_NAME, MAX_SKILL, PROFESSIONS } from '../src/core/types.ts';
 
 const STRING = 3;
 const INTEGER = 4;
@@ -14,7 +14,7 @@ const character = (description: string) => ({
   required: true,
   autocomplete: true,
   min_length: 2,
-  max_length: 12,
+  max_length: MAX_NAME,
 });
 
 const professionChoice = {
