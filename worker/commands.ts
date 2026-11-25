@@ -129,6 +129,23 @@ export const COMMANDS = [
     ],
   },
   {
+    name: 'bounty',
+    description: 'Recipes the guild wants found: on the board, and called out when someone logs one',
+    options: [
+      {
+        name: 'add',
+        description: 'Put a bounty on a recipe nobody has (needs Manage Server)',
+        type: SUBCOMMAND,
+        options: [
+          recipe('The recipe the guild wants'),
+          { name: 'reward', description: 'Like “50g from the guild bank”', type: STRING, required: false, max_length: 80 },
+        ],
+      },
+      { name: 'remove', description: 'Take a bounty down (needs Manage Server)', type: SUBCOMMAND, options: [recipe('The recipe')] },
+      { name: 'list', description: 'Open bounties, and who found the rest', type: SUBCOMMAND },
+    ],
+  },
+  {
     name: 'level',
     description: 'What still gives skill-ups at your skill, starting with things guildies have asked for',
     options: [professionChoice, character()],

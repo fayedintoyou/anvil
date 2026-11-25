@@ -50,6 +50,9 @@ the message by hand stops the edits too.
 
 ## Messages anvil sends on its own
 
+In the board's channel: a cheer when someone logs a recipe that's a first for the guild, a call-out when a
+bounty is found, and Sunday's digest at 17:00 UTC. With no board, none of these are posted.
+
 With the bot token, anvil also sends direct messages: when someone's cooldown is ready, and once a month
 to someone whose characters haven't changed in that long (`/mine reminders:False` stops those). Someone
 who doesn't take DMs from server members just doesn't get them. Finishing a `/want` request pings the

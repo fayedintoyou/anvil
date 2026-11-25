@@ -1,6 +1,7 @@
 import { PROFESSIONS, type Roster } from '../src/core/types';
 import { STALE_DAYS, isStale } from '../src/core/stale';
 import { recipe as recipeById } from '../src/core/recipes';
+import { coverage } from '../src/core/coverage';
 import type { CooldownTimer, RequestRow } from './guild-object';
 
 // The board: one message in a channel the guild picks, kept up to date by editing it. A single embed with
@@ -27,6 +28,7 @@ function crafterList(entries: string[]): string {
 export interface BoardExtras {
   requests: RequestRow[];
   cooldowns: CooldownTimer[];
+  bounties: { recipe: number; reward: string }[];
 }
 
 const MAX_LINES = 10;
@@ -37,14 +39,16 @@ function lines(list: string[]): string {
   return shown.join('\n').slice(0, 1000);
 }
 
-export function boardMessage(roster: Roster, pageUrl: string, extras: BoardExtras = { requests: [], cooldowns: [] }) {
+/** Collecting recipes: each profession's share the guild can make, in its heading. */
+export function boardMessage(roster: Roster, pageUrl: string, extras: BoardExtras = { requests: [], cooldowns: [], bounties: [] }) {
+  const covered = coverage(roster.characters);
   const fields = PROFESSIONS.flatMap((p) => {
     const people = roster.characters
       .filter((c) => c.skills[p.id] !== undefined)
       .sort((a, b) => b.skills[p.id]! - a.skills[p.id]! || a.name.localeCompare(b.name));
     if (!people.length) return [];
     const entry = (c: (typeof people)[number]) => (isStale(c) ? `*${c.name} ${c.skills[p.id]}*` : `${c.name} ${c.skills[p.id]}`);
-    return [{ name: `${p.name} · ${people.length}`, value: crafterList(people.map(entry)) }];
+    return [{ name: `${p.name} · ${people.length} · ${covered[p.id].percent}%`, value: crafterList(people.map(entry)) }];
   });
   if (extras.requests.length) {
     fields.push({
@@ -56,6 +60,12 @@ export function boardMessage(roster: Roster, pageUrl: string, extras: BoardExtra
           return `${many}${what} for ${q.asker_name} · ${q.status === 'claimed' ? `${q.claimer_name} is making it` : 'open'}`;
         }),
       ),
+    });
+  }
+  if (extras.bounties.length) {
+    fields.push({
+      name: `Bounties · ${extras.bounties.length}`,
+      value: lines(extras.bounties.map((b) => `${recipeById(b.recipe)?.name ?? 'a recipe'}${b.reward ? ` · ${b.reward}` : ''}`)),
     });
   }
   if (extras.cooldowns.length) {

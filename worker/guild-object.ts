@@ -7,6 +7,8 @@ import { discordApi, type Actor } from './discord';
 import { boardMessage, type BoardExtras } from './board';
 import { COOLDOWNS, cooldown as cooldownByKey, hasCooldown } from '../src/core/crafting';
 import { STALE_DAYS } from '../src/core/stale';
+import { whoCan } from '../src/core/whocan';
+import { coverage } from '../src/core/coverage';
 
 // One object per Discord server. Its SQLite storage holds the characters people have logged, their
 // profession skills, the recipes logged for them, and the page's settings. Each method's reads and writes
@@ -104,6 +106,15 @@ export class GuildObject extends DurableObject<Env> {
       );
       CREATE TABLE IF NOT EXISTS people (
         owner TEXT PRIMARY KEY, reminders INTEGER NOT NULL DEFAULT 1, nudged INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, kind TEXT NOT NULL, character TEXT, owner TEXT,
+        recipe INTEGER, profession TEXT, before INTEGER, after INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS bounties (
+        recipe INTEGER PRIMARY KEY, reward TEXT NOT NULL, set_by TEXT NOT NULL, created INTEGER NOT NULL,
+        finder TEXT, found_at INTEGER
       );
       CREATE TABLE IF NOT EXISTS edit_links (
         token TEXT PRIMARY KEY, actor TEXT NOT NULL, character TEXT NOT NULL, expires INTEGER NOT NULL
@@ -250,7 +261,11 @@ export class GuildObject extends DurableObject<Env> {
       );
       row = this.row(name)!;
     }
+    const before = this.sql
+      .exec<{ skill: number }>('SELECT skill FROM skills WHERE character = ? AND profession = ?', row.key, prof)
+      .toArray()[0]?.skill;
     this.sql.exec('INSERT OR REPLACE INTO skills (character, profession, skill) VALUES (?, ?, ?)', row.key, prof, skill);
+    if (skill > (before ?? 0)) this.logEvent('skill', row, { profession: prof, before: before ?? 0, after: skill });
     this.touch(row.key, actor);
     await this.changed();
     return { ok: true, message: `${row.name}: ${professionName(prof)} ${skill}.` };
@@ -313,8 +328,9 @@ export class GuildObject extends DurableObject<Env> {
         message: `${r.name} is taught by trainers, so ${row.name}’s ${professionName(r.prof)} ${skill} already counts it. Nothing to log: /whocan lists ${row.name} for it.`,
       };
     }
-    this.sql.exec('INSERT OR IGNORE INTO recipes (character, recipe) VALUES (?, ?)', row.key, r.id);
+    const firsts = this.learned(row, [r.id]);
     this.touch(row.key, actor);
+    this.announceFirsts(row.name, firsts);
     await this.changed();
     return { ok: true, message: `Logged ${r.name} for ${row.name}.` };
   }
@@ -345,6 +361,7 @@ export class GuildObject extends DurableObject<Env> {
     const added: string[] = [];
     const removed: string[] = [];
     const tooLow: string[] = [];
+    const learnable: number[] = [];
     for (const id of new Set(add)) {
       const r = recipeById(id);
       if (!r) continue;
@@ -352,10 +369,9 @@ export class GuildObject extends DurableObject<Env> {
         tooLow.push(`${r.name} (${professionName(r.prof)} ${r.skill})`);
         continue;
       }
-      if (this.sql.exec('INSERT OR IGNORE INTO recipes (character, recipe) VALUES (?, ?)', row.key, r.id).rowsWritten) {
-        added.push(r.name);
-      }
+      learnable.push(r.id);
     }
+    const firsts = this.learned(row, learnable, added);
     for (const id of new Set(remove)) {
       if (this.sql.exec('DELETE FROM recipes WHERE character = ? AND recipe = ?', row.key, id).rowsWritten) {
         removed.push(recipeById(id)?.name ?? String(id));
@@ -363,9 +379,162 @@ export class GuildObject extends DurableObject<Env> {
     }
     if (added.length || removed.length) {
       this.touch(row.key, actor);
+      this.announceFirsts(row.name, firsts);
       await this.changed();
     }
     return { ok: true, character: row.name, added, removed, tooLow };
+  }
+
+  // ---------- Firsts, bounties and the activity log ----------
+
+  private logEvent(kind: string, row: CharacterRow, more: { recipe?: number; profession?: string; before?: number; after?: number }) {
+    this.sql.exec(
+      'INSERT INTO events (at, kind, character, owner, recipe, profession, before, after) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      Date.now(),
+      kind,
+      row.name,
+      row.owner,
+      more.recipe ?? null,
+      more.profession ?? null,
+      more.before ?? null,
+      more.after ?? null,
+    );
+  }
+
+  /** Logs recipes for a character, returning the ones nobody else in the guild could make: the firsts.
+   *  `added` collects the names of the ones that weren't logged already. */
+  private learned(row: CharacterRow, ids: number[], added: string[] = []): number[] {
+    const others = this.characters().filter((c) => nameKey(c.name) !== row.key);
+    const firsts: number[] = [];
+    for (const id of ids) {
+      if (!this.sql.exec('INSERT OR IGNORE INTO recipes (character, recipe) VALUES (?, ?)', row.key, id).rowsWritten) continue;
+      const r = recipeById(id)!;
+      added.push(r.name);
+      const first = !whoCan(r, others).crafters.length;
+      this.logEvent(first ? 'first' : 'recipe', row, { recipe: id, profession: r.prof });
+      if (first) firsts.push(id);
+    }
+    return firsts;
+  }
+
+  /** A post for the board's channel, sent by the next alarm. Without a board there's nowhere to say it. */
+  private announce(content: string) {
+    if (this.setting('boardMessage')) this.sql.exec('INSERT INTO outbox (content) VALUES (?)', content);
+  }
+
+  private announceFirsts(character: string, firsts: number[]) {
+    if (!firsts.length) return;
+    const recipes = firsts.map((id) => recipeById(id)!);
+    const names = recipes.map((r) => `**${r.name}**`);
+    const percent = coverage(this.characters())[recipes[0].prof].percent;
+    const what = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+    this.announce(
+      `🎉 ${character} just learned ${what}: ${names.length === 1 ? 'a first' : 'firsts'} for the guild! ${professionName(recipes[0].prof)} is now ${percent}% covered.`,
+    );
+    for (const r of recipes) {
+      const bounty = this.sql.exec<{ reward: string }>('SELECT reward FROM bounties WHERE recipe = ? AND finder IS NULL', r.id).toArray()[0];
+      if (!bounty) continue;
+      this.sql.exec('UPDATE bounties SET finder = ?, found_at = ? WHERE recipe = ?', character, Date.now(), r.id);
+      this.announce(`🎯 Bounty found: ${character} brought in **${r.name}**${bounty.reward ? ` (${bounty.reward})` : ''}.`);
+    }
+  }
+
+  async setBounty(actor: Actor, recipe: number, reward: string): Promise<Outcome> {
+    if (!actor.manager) return { ok: false, error: 'Setting bounties needs Manage Server.' };
+    const r = recipeById(recipe);
+    if (!r) return { ok: false, error: 'Pick a recipe from the list as you type.' };
+    const crafter = whoCan(r, this.characters()).crafters[0];
+    if (crafter) return { ok: false, error: `${crafter.name} can already make ${r.name}.` };
+    this.sql.exec(
+      'INSERT OR REPLACE INTO bounties (recipe, reward, set_by, created) VALUES (?, ?, ?, ?)',
+      recipe,
+      reward,
+      actor.name,
+      Date.now(),
+    );
+    await this.changed();
+    return { ok: true, message: `Bounty up for ${r.name}${reward ? ` (${reward})` : ''}. It’s on the board, and anvil calls it out when someone logs it.` };
+  }
+
+  async removeBounty(actor: Actor, recipe: number): Promise<Outcome> {
+    if (!actor.manager) return { ok: false, error: 'Taking down bounties needs Manage Server.' };
+    if (!this.sql.exec('DELETE FROM bounties WHERE recipe = ?', recipe).rowsWritten) return { ok: false, error: 'There’s no bounty on that.' };
+    await this.changed();
+    return { ok: true, message: `Took down the bounty on ${recipeById(recipe)?.name ?? 'that'}.` };
+  }
+
+  async bounties(): Promise<{ recipe: number; reward: string; finder: string | null }[]> {
+    return this.sql
+      .exec<{ recipe: number; reward: string; finder: string | null }>('SELECT recipe, reward, finder FROM bounties ORDER BY found_at IS NOT NULL, created')
+      .toArray();
+  }
+
+  /** Sunday's post: what the week brought (since the last one). Nothing happened, nothing posted. */
+  private digest(since: number): string | undefined {
+    const events = this.sql.exec<{ kind: string; character: string | null; owner: string | null; recipe: number | null; profession: string | null; before: number | null; after: number | null }>(
+      'SELECT kind, character, owner, recipe, profession, before, after FROM events WHERE at > ? ORDER BY at',
+      since,
+    ).toArray();
+    if (!events.length) return undefined;
+    const lines = ['**This week in the guild’s workshop**'];
+    const gains = new Map<string, number>();
+    for (const e of events.filter((e) => e.kind === 'skill')) {
+      const key = `${e.character} · ${professionName(e.profession as ProfessionId)}`;
+      gains.set(key, (gains.get(key) ?? 0) + (e.after! - e.before!));
+    }
+    const topGains = [...gains].sort((a, b) => b[1] - a[1]).slice(0, 6);
+    if (topGains.length) lines.push(`Skill-ups: ${topGains.map(([k, n]) => `${k} +${n}`).join(', ')}.`);
+    const learned = events.filter((e) => e.kind === 'recipe' || e.kind === 'first');
+    if (learned.length) {
+      const firsts = learned.filter((e) => e.kind === 'first').map((e) => recipeById(e.recipe!)?.name).filter(Boolean);
+      lines.push(`Recipes learned: ${learned.length}${firsts.length ? `, ${firsts.length} of them firsts for the guild (${firsts.slice(0, 6).join(', ')})` : ''}.`);
+    }
+    const done = events.filter((e) => e.kind === 'request');
+    if (done.length) {
+      const byCrafter = new Map<string, number>();
+      for (const e of done) byCrafter.set(e.owner!, (byCrafter.get(e.owner!) ?? 0) + 1);
+      const [best, count] = [...byCrafter].sort((a, b) => b[1] - a[1])[0];
+      const bestName = this.sql.exec<{ owner_name: string }>('SELECT owner_name FROM characters WHERE owner = ? LIMIT 1', best).toArray()[0]?.owner_name;
+      lines.push(`Requests filled: ${done.length}.`);
+      lines.push(`🏆 Crafter of the week: **${bestName ?? 'a guildie'}**, with ${count} filled. Thank you!`);
+    }
+    const percent = coverage(this.characters());
+    const ranked = Object.entries(percent).filter(([, c]) => c.have).sort((a, b) => b[1].percent - a[1].percent).slice(0, 4);
+    if (ranked.length) lines.push(`Coverage: ${ranked.map(([p, c]) => `${professionName(p as ProfessionId)} ${c.percent}%`).join(', ')}.`);
+    return lines.join('\n');
+  }
+
+  /** When the next digest is due: Sunday 17:00 UTC, or a scaled week in the end-to-end run. */
+  private nextDigest(now: number): number {
+    if (this.scale !== 1) return now + 7 * DAY_MS * this.scale;
+    const d = new Date(now);
+    d.setUTCHours(17, 0, 0, 0);
+    d.setUTCDate(d.getUTCDate() + ((7 - d.getUTCDay()) % 7));
+    return d.getTime() > now ? d.getTime() : d.getTime() + 7 * DAY_MS;
+  }
+
+  /** Posts waiting announcements, and the digest when it's due, in the board's channel. */
+  private async sendPosts(now: number) {
+    const channel = this.setting('boardChannel');
+    if (!channel) {
+      this.sql.exec('DELETE FROM outbox');
+      return;
+    }
+    const due = Number(this.setting('digestAt') ?? 0);
+    if (!due) this.setSetting('digestAt', String(this.nextDigest(now)));
+    else if (now >= due) {
+      this.setSetting('digestAt', String(this.nextDigest(now)));
+      // Since the last digest, or since the board went up.
+      const since = Number(this.setting('lastDigest') ?? this.setting('boardSince') ?? now - 7 * DAY_MS * this.scale);
+      this.setSetting('lastDigest', String(now));
+      const text = this.digest(since);
+      if (text) this.sql.exec('INSERT INTO outbox (content) VALUES (?)', text);
+    }
+    for (const post of this.sql.exec<{ id: number; content: string }>('SELECT * FROM outbox ORDER BY id').toArray()) {
+      this.sql.exec('DELETE FROM outbox WHERE id = ?', post.id);
+      await discordApi(this.env, 'POST', `/channels/${channel}/messages`, { content: post.content, allowed_mentions: { parse: [] } }).catch(() => {});
+    }
+    this.sql.exec('DELETE FROM events WHERE at < ?', now - 60 * DAY_MS * this.scale);
   }
 
   // ---------- Private edit links ----------
@@ -455,6 +624,7 @@ export class GuildObject extends DurableObject<Env> {
     const [oldChannel, oldMessage] = BOARD_SETTINGS.map((name) => this.setting(name));
     this.setSetting('boardChannel', channelId);
     this.setSetting('boardMessage', posted.id);
+    if (!this.setting('boardSince')) this.setSetting('boardSince', String(Date.now()));
     if (oldChannel && oldMessage) await discordApi(this.env, 'DELETE', `/channels/${oldChannel}/messages/${oldMessage}`).catch(() => {});
     return {
       ok: true,
@@ -477,7 +647,10 @@ export class GuildObject extends DurableObject<Env> {
     const requests = this.sql
       .exec<RequestRow>("SELECT * FROM requests WHERE status IN ('open', 'claimed') AND created > ? ORDER BY created DESC", since)
       .toArray();
-    return { requests, cooldowns: this.timers() };
+    const bounties = this.sql
+      .exec<{ recipe: number; reward: string }>('SELECT recipe, reward FROM bounties WHERE finder IS NULL ORDER BY created')
+      .toArray();
+    return { requests, cooldowns: this.timers(), bounties };
   }
 
   /** Edits the board to match. A board someone deleted, or anvil can't see any more, is forgotten. */
@@ -496,21 +669,30 @@ export class GuildObject extends DurableObject<Env> {
       if (this.setting('boardMessage') === message) this.clearBoard();
       return;
     }
-    if (!response.ok) {
-      // Discord busy or rate limited: throwing retries the alarm, with the board still to edit.
-      this.setSetting('boardDirty', '1');
-      throw new Error(`Discord answered ${response.status} to a board edit.`);
-    }
+    if (!response.ok) throw new Error(`Discord answered ${response.status} to a board edit.`);
   }
 
   async alarm() {
     const now = Date.now();
     await this.cooldownsReady(now);
     await this.nudgeStale(now);
-    if (this.setting('boardDirty')) await this.editBoard();
+    await this.sendPosts(now);
+    if (this.setting('boardDirty')) {
+      try {
+        await this.editBoard();
+      } catch (e) {
+        // Discord busy or rate limited: try the board again shortly. Not by throwing, which would back the
+        // whole alarm off, cooldown messages and all.
+        console.error(e);
+        this.setSetting('boardDirty', '1');
+        await this.wake(now + Number(this.env.BOARD_DELAY_MS ?? BOARD_DELAY_MS));
+      }
+    }
     // What's next: the soonest cooldown still to come, and tomorrow's look for stale entries.
     const next = this.sql.exec<{ ends: number }>('SELECT MIN(ends) AS ends FROM cooldowns WHERE notified = 0').toArray()[0]?.ends;
     if (next) await this.wake(next);
+    const digestAt = Number(this.setting('digestAt') ?? 0);
+    if (digestAt && this.setting('boardChannel')) await this.wake(digestAt);
     if (this.sql.exec('SELECT 1 FROM characters LIMIT 1').toArray().length) await this.wake(now + DAY_MS * this.scale);
   }
 
@@ -520,15 +702,19 @@ export class GuildObject extends DurableObject<Env> {
    *  and that's fine: nothing depends on it. */
   private async dm(userId: string, content: string): Promise<boolean> {
     if (!this.env.DISCORD_BOT_TOKEN) return false;
-    try {
-      const channel = await discordApi(this.env, 'POST', '/users/@me/channels', { recipient_id: userId });
-      if (!channel.ok) return false;
-      const { id } = await channel.json<{ id: string }>();
-      const sent = await discordApi(this.env, 'POST', `/channels/${id}/messages`, { content, allowed_mentions: { parse: [] } });
-      return sent.ok;
-    } catch {
-      return false;
+    // A dropped connection gets one more try; a refusal (DMs closed) doesn't.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const channel = await discordApi(this.env, 'POST', '/users/@me/channels', { recipient_id: userId });
+        if (!channel.ok) return false;
+        const { id } = await channel.json<{ id: string }>();
+        const sent = await discordApi(this.env, 'POST', `/channels/${id}/messages`, { content, allowed_mentions: { parse: [] } });
+        return sent.ok;
+      } catch (e) {
+        console.error(e);
+      }
     }
+    return false;
   }
 
   private guildLabel(): string {
@@ -585,6 +771,13 @@ export class GuildObject extends DurableObject<Env> {
       if (row.status !== 'claimed') return { ok: false, error: 'Press “I’ll make it” first.' };
       if (!isClaimer && !isAsker && !actor.manager) return { ok: false, error: `Only ${row.claimer_name} or ${row.asker_name} can mark it done.` };
       status = 'done';
+      this.sql.exec(
+        "INSERT INTO events (at, kind, owner, recipe, after) VALUES (?, 'request', ?, ?, ?)",
+        Date.now(),
+        row.claimer,
+        row.recipe,
+        row.quantity,
+      );
     } else {
       if (!isAsker && !actor.manager) return { ok: false, error: `Only ${row.asker_name} can cancel their request.` };
       status = 'cancelled';

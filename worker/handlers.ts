@@ -18,6 +18,7 @@ import {
 import {
   HELP,
   altText,
+  bountiesText,
   changesText,
   cooldownsText,
   craftersText,
@@ -79,7 +80,7 @@ export async function autocomplete(env: Env, i: Interaction) {
 
   if (focused.name === 'recipe') {
     const toChoice = (r: Recipe) => ({ name: `${recipeLabel(r)} · ${professionName(r.prof)} ${r.skill}`, value: String(r.id) });
-    if (i.data?.name === 'whocan' || i.data?.name === 'want') {
+    if (i.data?.name === 'whocan' || i.data?.name === 'want' || i.data?.name === 'bounty') {
       // A pasted Wowhead or game link: offer the recipe it points at.
       const linked = recipeFromLink(typed);
       return choices(linked ? [toChoice(linked)] : searchRecipes(typed).map(toChoice));
@@ -137,6 +138,14 @@ export async function command(env: Env, i: Interaction, origin: string) {
     const prof = get(options, 'profession');
     if (!isProfessionId(prof)) return message('Pick a profession from the list.');
     return message(craftersText(prof, await g.roster()), { ephemeral: false });
+  }
+
+  if (name === 'bounty') {
+    if (sub === 'list') return message(bountiesText(await g.bounties()), { ephemeral: false });
+    const r = pickRecipe(get(options, 'recipe'));
+    if (!r) return message('I couldn’t find that recipe. Pick one from the list as you type.');
+    if (sub === 'add') return reply(await g.setBounty(actor, r.id, String(get(options, 'reward') ?? '').trim()));
+    if (sub === 'remove') return reply(await g.removeBounty(actor, r.id));
   }
 
   if (name === 'alt') return message(altText(await g.roster()), { ephemeral: false });

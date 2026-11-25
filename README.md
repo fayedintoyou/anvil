@@ -21,6 +21,10 @@ no addon to install and nothing to export from the game:
   **`/alt`**: which professions the guild is short of.
 - **`/cooldown used`** after a Mooncloth, a transmute or the Salt Shaker: anvil messages you when it's ready,
   and the board and `/cooldown list` show everyone's.
+- **Collecting**: when someone logs a recipe nobody else had, anvil cheers in the board's channel, and
+  each profession shows how much of it the guild covers. **`/bounty`** puts a wanted recipe on the board
+  and calls out whoever brings it in. Every Sunday a digest: skill-ups, recipes learned, requests
+  filled, and a crafter of the week.
 - **Reminders**: if someone's characters go a month without an update, anvil messages them once to check.
   `/mine reminders:False` turns that off.
 - **`/whocan`**: who can make something, answered in the channel. It names who has logged it or has the

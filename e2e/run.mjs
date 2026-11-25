@@ -45,6 +45,9 @@ async function fakeDiscord() {
     if (req.method === 'DELETE') return send(204);
     return send(200, {});
   });
+  // Longer than any gap between calls: otherwise a connection the Worker reuses can be closed under it, and
+  // that call fails for reasons that aren't anvil's.
+  http.keepAliveTimeout = 120_000;
   await new Promise((resolve) => http.listen(0, '127.0.0.1', resolve));
   return {
     calls,
@@ -57,7 +60,8 @@ async function fakeDiscord() {
         if (call) return call;
         await new Promise((r) => setTimeout(r, 50));
       }
-      assert.fail(`Discord never got ${what}`);
+      const recent = calls.slice(-12).map((c) => `${c.method} ${c.path} ${JSON.stringify(c.body ?? '').slice(0, 90)}`);
+      assert.fail(`Discord never got ${what}. Its last calls:\n${recent.join('\n')}`);
     },
   };
 }
@@ -363,11 +367,9 @@ try {
     const [embed] = first.body.embeds;
     assert.equal(embed.title, 'Lamplight Crafters');
     assert.ok(embed.url.endsWith(pagePath), 'the board links the guild page');
-    assert.deepEqual(
-      embed.fields.find((f) => f.name.startsWith('Tailoring')),
-      { name: 'Tailoring · 2', value: 'Thalia 255 · Morwen 90' },
-      'crafters, highest skill first',
-    );
+    const tailoring = embed.fields.find((f) => f.name.startsWith('Tailoring'));
+    assert.equal(tailoring.value, 'Thalia 255 · Morwen 90', 'crafters, highest skill first');
+    assert.match(tailoring.name, /^Tailoring · 2 · \d+%$/, 'with how much of the profession the guild covers');
     assert.deepEqual(first.body.allowed_mentions, { parse: [] });
 
     await run('faye', 'prof', 'set', { character: 'Thalia', profession: 'cooking', skill: 160 });
@@ -486,6 +488,16 @@ try {
   r = await run('faye', 'want', null, { recipe: '17635' });
   assert.match(r.text, /Only your own characters can make it/);
 
+  // Bounties: officers only, and only for what nobody can make yet.
+  r = await run('brakka', 'bounty', 'add', { recipe: MOONCLOTH_ROBE, reward: '50g' });
+  assert.match(r.text, /needs Manage Server/);
+  r = await run('officer', 'bounty', 'add', { recipe: MOONCLOTH });
+  assert.match(r.text, /Thalia can already make Mooncloth/);
+  r = await run('officer', 'bounty', 'add', { recipe: MOONCLOTH_ROBE, reward: '50g' });
+  assert.match(r.text, /Bounty up for Mooncloth Robe \(50g\)/);
+  r = await run('brakka', 'bounty', 'list');
+  assert.match(r.text, /\*\*Wanted\*\*\n- Mooncloth Robe · 50g/);
+
   // Links and batches: a Wowhead link to the item made, or to the spell, finds the recipe.
   r = await run('brakka', 'whocan', null, { recipe: 'https://www.wowhead.com/forever/item=14342/mooncloth' });
   assert.ok(r.text.startsWith('[**Mooncloth**]'), 'an item link finds the recipe that makes it');
@@ -540,6 +552,28 @@ try {
     assert.match(r.text, /No more reminders/);
     r = await run('officer', 'board');
     assert.match(r.text, /board is up/);
+    // A first for the guild, with a bounty on it, and a request filled: all for Sunday's digest.
+    await run('officer', 'bounty', 'add', { recipe: '17635', reward: '50g' });
+    await run('faye', 'prof', 'set', { character: 'Thalia', profession: 'alchemy', skill: 300 });
+    await run('faye', 'recipe', 'add', { character: 'Thalia', recipe: '17635' });
+    const first = await discord.waitFor(
+      (c) => discord.calls.indexOf(c) >= from && c.method === 'POST' && /just learned/.test(c.body?.content ?? ''),
+      'a first announced',
+    );
+    assert.match(first.body.content, /^🎉 Thalia just learned \*\*Flask of the Titans\*\*: a first for the guild! Alchemy is now \d+% covered\.$/);
+    assert.equal(first.path, `/channels/${CHANNEL}/messages`, 'in the board’s channel');
+    await discord.waitFor((c) => discord.calls.indexOf(c) >= from && /🎯 Bounty found: Thalia brought in \*\*Flask of the Titans\*\* \(50g\)/.test(c.body?.content ?? ''), 'the bounty called out');
+    r = await run('brakka', 'want', null, { recipe: '17635' });
+    const [claimIt] = r.data.components[0].components.map((c) => c.custom_id);
+    const taken = await press('faye', claimIt);
+    await press('faye', taken.buttons[0]);
+    const digest = await discord.waitFor(
+      (c) => discord.calls.indexOf(c) >= from && /This week in the guild’s workshop/.test(c.body?.content ?? ''),
+      'the weekly digest',
+    );
+    assert.match(digest.body.content, /Skill-ups: [^\n]*Thalia · Alchemy \+300/);
+    assert.match(digest.body.content, /firsts for the guild \([^)]*Flask of the Titans/);
+    assert.match(digest.body.content, /🏆 Crafter of the week: \*\*Faye\*\*, with 1 filled/);
     r = await run('brakka', 'cooldown', 'used', { cooldown: 'salt-shaker' });
     assert.match(r.text, /Brakka’s Salt Shaker is ready again/, 'any leatherworker at 250 can have the Salt Shaker');
     await run('faye', 'cooldown', 'used', { cooldown: 'recipe-18560' });

@@ -84,6 +84,7 @@ export const HELP = [
   '- `/recipe add`: recipes a skill doesn’t cover, like drops, vendor patterns, quests and campsite recipes.',
   '- `/recipe bulk`: paste a whole list at once. `/recipe edit`: a private page to tick them off.',
   '- `/whocan`: who can make something. `/want`: ask for it, pinging the people who can; they press a button to take it on.',
+  '- `/bounty`: recipes the guild wants found. `/level`: what still skills you up. `/alt`: what the guild is short of.',
   '- `/cooldown used`: after a Mooncloth, transmute or Salt Shaker, so anvil can tell you when it’s ready.',
   '- `/crafters`: everyone with a profession. `/mine`: what you’ve logged.',
   '- `/board`: a message in a channel that anvil keeps up to date (Manage Server).',
@@ -221,5 +222,16 @@ export function altText(roster: Roster): string {
   const secondary = rows.filter((x) => !x.p.primary);
   lines.push(`Secondary: ${secondary.map((x) => `${x.p.name} (${describe(x)})`).join(', ')}.`);
   if (short.length) lines.push(`A new alt would help most with ${short.map((x) => x.p.name).join(' or ')}.`);
+  return lines.join('\n');
+}
+
+export function bountiesText(list: { recipe: number; reward: string; finder: string | null }[]): string {
+  if (!list.length) return 'No bounties. Someone with Manage Server can add one with `/bounty add`.';
+  const open = list.filter((b) => !b.finder);
+  const found = list.filter((b) => b.finder);
+  const name = (id: number) => recipeById(id)?.name ?? 'a recipe';
+  const lines: string[] = [];
+  if (open.length) lines.push('**Wanted**', ...open.map((b) => `- ${name(b.recipe)}${b.reward ? ` · ${b.reward}` : ''}`));
+  if (found.length) lines.push('**Found**', ...found.slice(0, 10).map((b) => `- ${name(b.recipe)} · by ${b.finder}`));
   return lines.join('\n');
 }

@@ -4,6 +4,7 @@ import { MAX_SKILL, PROFESSIONS } from '../core/types';
 import { RECIPES, isNotable, recipe, recipeLabel, searchRecipes, wowheadUrl } from '../core/recipes';
 import { STALE_DAYS, isStale } from '../core/stale';
 import { reagentText } from '../core/crafting';
+import { coverage } from '../core/coverage';
 import { professionName } from '../core/professions';
 import { whoCan } from '../core/whocan';
 import { Wordmark } from './App';
@@ -178,6 +179,7 @@ function Search({ characters }: { characters: Character[] }) {
 }
 
 function Professions({ characters }: { characters: Character[] }) {
+  const covered = useMemo(() => coverage(characters), [characters]);
   return (
     <section aria-labelledby="profs-title">
       <h2 className="section-title" id="profs-title">
@@ -191,7 +193,10 @@ function Professions({ characters }: { characters: Character[] }) {
           return (
             <article key={p.id} className={`prof${people.length ? '' : ' none'}`} data-prof={p.id}>
               <h3>
-                {p.name} <span className="meta">{people.length || 'nobody yet'}</span>
+                {p.name}{' '}
+                <span className="meta" title={`${covered[p.id].have} of ${covered[p.id].total} recipes covered`}>
+                  {people.length ? `${people.length} · ${covered[p.id].percent}%` : 'nobody yet'}
+                </span>
               </h3>
               {people.length > 0 && (
                 <ul>
