@@ -27,8 +27,9 @@ no addon to install and nothing to export from the game:
 - **Name your character once**: leave `character:` out and anvil uses the one you last changed (or your
   only one). `/prof forget` always needs the name.
 
-The recipe list holds 2,231 recipes across the twelve professions, built from two MIT-licensed addons'
-data (see [NOTICE.md](NOTICE.md)).
+The recipe list holds 2,228 recipes across the twelve professions, built from two MIT-licensed addons'
+data (see [NOTICE.md](NOTICE.md)). `node scripts/audit.mjs` checks it against Wowhead's WoW Forever
+database: every recipe there under the same name, and the same skill on its pattern or plans.
 
 ## How it's built
 

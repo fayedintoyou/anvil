@@ -23,6 +23,12 @@ describe('recipe list', () => {
     expect(RECIPES.filter((r) => r.learned === 'campsite').length).toBeGreaterThanOrEqual(30);
   });
 
+  it('takes the real skill where the source has a placeholder 1', () => {
+    // Recipe Registry gives these thresholds of 1/260/290/320 and 1/280/282/285 (see scripts/recipes.mjs).
+    expect(RECIPES.find((r) => r.name === 'Runecloth Bandage')?.skill).toBe(260);
+    expect(RECIPES.find((r) => r.name === 'Tinker: Teleport')?.skill).toBe(280);
+  });
+
   it('puts names that start with the search first', () => {
     expect(searchRecipes('mooncl')[0].name).toBe('Mooncloth');
     expect(searchRecipes('titans flask')[0].name).toBe('Flask of the Titans');
