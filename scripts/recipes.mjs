@@ -36,6 +36,7 @@ const automatic = new Set(
 );
 
 const rows = [];
+const reagents = {};
 const skipped = { removed: 0, unnamed: 0, noSkill: 0, beyondCap: 0 };
 const counts = {};
 for (const [key, r] of Object.entries(registry)) {
@@ -73,7 +74,13 @@ for (const [key, r] of Object.entries(registry)) {
     : (LEARNED[r.sourceKind] ?? (r.sourceKind ? 'other' : r.recipeItemId ? 'other' : 'trainer'));
   counts[learned] = (counts[learned] ?? 0) + 1;
   rows.push([id, name, prof, skill, learned]);
+  if (r.reagents?.length) reagents[id] = r.reagents.map((g) => [g.itemId, g.count]);
 }
 rows.sort((a, b) => a[0] - b[0]);
 writeFileSync(new URL('../src/core/recipes.json', import.meta.url), `[\n${rows.map((r) => JSON.stringify(r)).join(',\n')}\n]\n`);
+// What each recipe takes, as [item id, count]; the item names come from `npm run wowhead`.
+writeFileSync(
+  new URL('../src/core/reagents.json', import.meta.url),
+  `{\n${Object.entries(reagents).map(([id, list]) => `"${id}":${JSON.stringify(list)}`).join(',\n')}\n}\n`,
+);
 console.log(`${rows.length} recipes`, counts, 'skipped', skipped);

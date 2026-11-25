@@ -4,7 +4,9 @@ import { checkPrimaryLimit, nameKey } from '../src/core/validate';
 import { professionName } from '../src/core/professions';
 import { recipe as recipeById } from '../src/core/recipes';
 import { discordApi, type Actor } from './discord';
-import { boardMessage } from './board';
+import { boardMessage, type BoardExtras } from './board';
+import { COOLDOWNS, cooldown as cooldownByKey, hasCooldown } from '../src/core/crafting';
+import { STALE_DAYS } from '../src/core/stale';
 
 // One object per Discord server. Its SQLite storage holds the characters people have logged, their
 // profession skills, the recipes logged for them, and the page's settings. Each method's reads and writes
@@ -17,6 +19,31 @@ export type Outcome = { ok: true; message: string } | { ok: false; error: string
 export type Changes =
   | { ok: true; character: string; added: string[]; removed: string[]; tooLow: string[] }
   | { ok: false; error: string };
+
+export type RequestStatus = 'open' | 'claimed' | 'done' | 'cancelled';
+export type RequestAction = 'claim' | 'unclaim' | 'done' | 'cancel';
+
+export interface RequestRow extends Record<string, SqlStorageValue> {
+  id: number;
+  recipe: number;
+  asker: string;
+  asker_name: string;
+  body: string;
+  claimer: string | null;
+  claimer_name: string | null;
+  status: RequestStatus;
+  created: number;
+  updated: number;
+}
+
+export interface CooldownTimer {
+  key: string;
+  character: string;
+  owner: string;
+  cooldown: string;
+  name: string;
+  ends: number;
+}
 
 export interface EditView {
   guildName: string;
@@ -36,6 +63,9 @@ const PAGE_KEY_LENGTH = 12;
 const EDIT_TOKEN_LENGTH = 24;
 const EDIT_LINK_MS = 2 * 60 * 60 * 1000;
 const BOARD_DELAY_MS = 30_000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Open requests older than this drop off the board. */
+const REQUEST_DAYS = 14;
 const BOARD_SETTINGS = ['boardChannel', 'boardMessage'];
 const CANT_POST =
   'I can’t post here. In this channel’s settings → Permissions, give anvil View Channel, Send Messages and Embed Links, then try again.';
@@ -61,6 +91,18 @@ export class GuildObject extends DurableObject<Env> {
       );
       CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS last_used (owner TEXT PRIMARY KEY, character TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, recipe INTEGER NOT NULL, asker TEXT NOT NULL, asker_name TEXT NOT NULL,
+        body TEXT NOT NULL, claimer TEXT, claimer_name TEXT, status TEXT NOT NULL, created INTEGER NOT NULL,
+        updated INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS cooldowns (
+        character TEXT NOT NULL, cooldown TEXT NOT NULL, ends INTEGER NOT NULL, notified INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (character, cooldown)
+      );
+      CREATE TABLE IF NOT EXISTS people (
+        owner TEXT PRIMARY KEY, reminders INTEGER NOT NULL DEFAULT 1, nudged INTEGER NOT NULL DEFAULT 0
+      );
       CREATE TABLE IF NOT EXISTS edit_links (
         token TEXT PRIMARY KEY, actor TEXT NOT NULL, character TEXT NOT NULL, expires INTEGER NOT NULL
       );
@@ -167,7 +209,7 @@ export class GuildObject extends DurableObject<Env> {
   async setTitle(actor: Actor, title: string): Promise<Outcome> {
     if (!actor.manager) return { ok: false, error: 'Naming the page needs Manage Server.' };
     this.setSetting('title', title);
-    await this.boardChanged();
+    await this.changed();
     return { ok: true, message: `The page is now called “${title}”.` };
   }
 
@@ -198,7 +240,7 @@ export class GuildObject extends DurableObject<Env> {
     }
     this.sql.exec('INSERT OR REPLACE INTO skills (character, profession, skill) VALUES (?, ?, ?)', row.key, prof, skill);
     this.touch(row.key, actor);
-    await this.boardChanged();
+    await this.changed();
     return { ok: true, message: `${row.name}: ${professionName(prof)} ${skill}.` };
   }
 
@@ -215,7 +257,7 @@ export class GuildObject extends DurableObject<Env> {
       .filter((r) => recipeById(r.recipe)?.prof === prof);
     for (const r of dropped) this.sql.exec('DELETE FROM recipes WHERE character = ? AND recipe = ?', row.key, r.recipe);
     this.touch(row.key, actor);
-    await this.boardChanged();
+    await this.changed();
     const also = dropped.length ? ` and ${dropped.length} logged recipe${dropped.length === 1 ? '' : 's'}` : '';
     return { ok: true, message: `Dropped ${professionName(prof)}${also} from ${row.name}.` };
   }
@@ -229,7 +271,8 @@ export class GuildObject extends DurableObject<Env> {
     this.sql.exec('DELETE FROM characters WHERE key = ?', key);
     this.sql.exec('DELETE FROM last_used WHERE character = ?', key);
     this.sql.exec('DELETE FROM edit_links WHERE character = ?', key);
-    await this.boardChanged();
+    this.sql.exec('DELETE FROM cooldowns WHERE character = ?', key);
+    await this.changed();
     return { ok: true, message: `Forgot ${shown} and everything logged for them.` };
   }
 
@@ -260,7 +303,7 @@ export class GuildObject extends DurableObject<Env> {
     }
     this.sql.exec('INSERT OR IGNORE INTO recipes (character, recipe) VALUES (?, ?)', row.key, r.id);
     this.touch(row.key, actor);
-    await this.boardChanged();
+    await this.changed();
     return { ok: true, message: `Logged ${r.name} for ${row.name}.` };
   }
 
@@ -271,7 +314,7 @@ export class GuildObject extends DurableObject<Env> {
     const removed = this.sql.exec('DELETE FROM recipes WHERE character = ? AND recipe = ?', row.key, recipeId).rowsWritten;
     if (!removed) return { ok: false, error: `${row.name} doesn’t have that recipe logged.` };
     this.touch(row.key, actor);
-    await this.boardChanged();
+    await this.changed();
     return { ok: true, message: `Took ${recipeById(recipeId)?.name ?? 'that recipe'} off ${row.name}.` };
   }
 
@@ -308,7 +351,7 @@ export class GuildObject extends DurableObject<Env> {
     }
     if (added.length || removed.length) {
       this.touch(row.key, actor);
-      await this.boardChanged();
+      await this.changed();
     }
     return { ok: true, character: row.name, added, removed, tooLow };
   }
@@ -363,11 +406,26 @@ export class GuildObject extends DurableObject<Env> {
     for (const name of BOARD_SETTINGS) this.sql.exec('DELETE FROM settings WHERE name = ?', name);
   }
 
-  /** After a change, edit the board a little later, so a burst of changes is one edit. */
-  private async boardChanged() {
-    if (!this.setting('boardMessage')) return;
-    if ((await this.ctx.storage.getAlarm()) === null) {
-      await this.ctx.storage.setAlarm(Date.now() + Number(this.env.BOARD_DELAY_MS ?? BOARD_DELAY_MS));
+  /** TIME_SCALE shrinks cooldowns, staleness and the daily check, for the end-to-end run only. */
+  private get scale(): number {
+    return Number(this.env.TIME_SCALE ?? 1);
+  }
+
+  /** The alarm runs at the earliest moment anything is due: a board edit, a cooldown coming ready, or the
+   *  daily look for stale entries. */
+  private async wake(at: number) {
+    const current = await this.ctx.storage.getAlarm();
+    if (current === null || at < current) await this.ctx.storage.setAlarm(at);
+  }
+
+  /** After a change: edit the board a little later, so a burst of changes is one edit, and make sure the
+   *  daily check is coming. */
+  private async changed() {
+    if (this.setting('boardMessage')) {
+      this.setSetting('boardDirty', '1');
+      await this.wake(Date.now() + Number(this.env.BOARD_DELAY_MS ?? BOARD_DELAY_MS));
+    } else {
+      await this.wake(Date.now() + DAY_MS * this.scale);
     }
   }
 
@@ -378,7 +436,7 @@ export class GuildObject extends DurableObject<Env> {
     await this.pageKey();
     this.setSetting('guildId', guildId);
     this.setSetting('origin', origin);
-    const response = await discordApi(this.env, 'POST', `/channels/${channelId}/messages`, boardMessage(await this.roster(), this.pageUrl()!));
+    const response = await discordApi(this.env, 'POST', `/channels/${channelId}/messages`, boardMessage(await this.roster(), this.pageUrl()!, this.boardExtras()));
     if (response.status === 403 || response.status === 404) return { ok: false, error: CANT_POST };
     if (!response.ok) return { ok: false, error: `Discord wouldn’t take the board (${response.status}). Try again in a moment.` };
     const posted = await response.json<{ id: string }>();
@@ -402,17 +460,243 @@ export class GuildObject extends DurableObject<Env> {
     return { ok: true, message: 'Took the board down.' };
   }
 
-  async alarm() {
+  private boardExtras(): BoardExtras {
+    const since = Date.now() - REQUEST_DAYS * DAY_MS;
+    const requests = this.sql
+      .exec<RequestRow>("SELECT * FROM requests WHERE status IN ('open', 'claimed') AND created > ? ORDER BY created DESC", since)
+      .toArray();
+    return { requests, cooldowns: this.timers() };
+  }
+
+  /** Edits the board to match. A board someone deleted, or anvil can't see any more, is forgotten. */
+  private async editBoard() {
     const [channel, message] = BOARD_SETTINGS.map((name) => this.setting(name));
     const url = this.pageUrl();
+    this.sql.exec("DELETE FROM settings WHERE name = 'boardDirty'");
     if (!channel || !message || !url) return;
-    const response = await discordApi(this.env, 'PATCH', `/channels/${channel}/messages/${message}`, boardMessage(await this.roster(), url));
+    const response = await discordApi(
+      this.env,
+      'PATCH',
+      `/channels/${channel}/messages/${message}`,
+      boardMessage(await this.roster(), url, this.boardExtras()),
+    );
     if (response.status === 403 || response.status === 404) {
-      // Someone deleted the message, or anvil can't see the channel any more: stop until /board is run again.
       if (this.setting('boardMessage') === message) this.clearBoard();
       return;
     }
-    // Anything else (Discord busy, rate limited) throws, and the alarm is retried.
-    if (!response.ok) throw new Error(`Discord answered ${response.status} to a board edit.`);
+    if (!response.ok) {
+      // Discord busy or rate limited: throwing retries the alarm, with the board still to edit.
+      this.setSetting('boardDirty', '1');
+      throw new Error(`Discord answered ${response.status} to a board edit.`);
+    }
+  }
+
+  async alarm() {
+    const now = Date.now();
+    await this.cooldownsReady(now);
+    await this.nudgeStale(now);
+    if (this.setting('boardDirty')) await this.editBoard();
+    // What's next: the soonest cooldown still to come, and tomorrow's look for stale entries.
+    const next = this.sql.exec<{ ends: number }>('SELECT MIN(ends) AS ends FROM cooldowns WHERE notified = 0').toArray()[0]?.ends;
+    if (next) await this.wake(next);
+    if (this.sql.exec('SELECT 1 FROM characters LIMIT 1').toArray().length) await this.wake(now + DAY_MS * this.scale);
+  }
+
+  // ---------- Direct messages ----------
+
+  /** A direct message from the bot. People can turn DMs from server members off, so this may not arrive,
+   *  and that's fine: nothing depends on it. */
+  private async dm(userId: string, content: string): Promise<boolean> {
+    if (!this.env.DISCORD_BOT_TOKEN) return false;
+    try {
+      const channel = await discordApi(this.env, 'POST', '/users/@me/channels', { recipient_id: userId });
+      if (!channel.ok) return false;
+      const { id } = await channel.json<{ id: string }>();
+      const sent = await discordApi(this.env, 'POST', `/channels/${id}/messages`, { content, allowed_mentions: { parse: [] } });
+      return sent.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  private guildLabel(): string {
+    return this.setting('title') || 'your guild';
+  }
+
+  // ---------- Requests (/want) ----------
+
+  async openRequest(actor: Actor, recipe: number, body: string): Promise<RequestRow> {
+    const now = Date.now();
+    const row = this.sql
+      .exec<RequestRow>(
+        "INSERT INTO requests (recipe, asker, asker_name, body, status, created, updated) VALUES (?, ?, ?, ?, 'open', ?, ?) RETURNING *",
+        recipe,
+        actor.id,
+        actor.name,
+        body,
+        now,
+        now,
+      )
+      .one();
+    await this.changed();
+    return row;
+  }
+
+  /** A button pressed on a request. Anyone can take one on; the person making it, the asker, or someone
+   *  with Manage Server can finish or let it go; only the asker (or Manage Server) can cancel it. */
+  async requestAction(actor: Actor, id: number, action: RequestAction): Promise<{ ok: true; row: RequestRow } | { ok: false; error: string }> {
+    const row = this.sql.exec<RequestRow>('SELECT * FROM requests WHERE id = ?', id).toArray()[0];
+    if (!row) return { ok: false, error: 'That request is gone.' };
+    const isAsker = row.asker === actor.id;
+    const isClaimer = row.claimer === actor.id;
+    let status: RequestStatus;
+    let claimer = row.claimer;
+    let claimerName = row.claimer_name;
+    if (row.status === 'done' || row.status === 'cancelled') return { ok: false, error: `That request is already ${row.status}.` };
+    if (action === 'claim') {
+      if (row.status === 'claimed') return { ok: false, error: `${row.claimer_name} is already making it.` };
+      status = 'claimed';
+      claimer = actor.id;
+      claimerName = actor.name;
+    } else if (action === 'unclaim') {
+      if (row.status !== 'claimed') return { ok: false, error: 'Nobody’s making it yet.' };
+      if (!isClaimer && !actor.manager) return { ok: false, error: `Only ${row.claimer_name} can let this one go.` };
+      status = 'open';
+      claimer = null;
+      claimerName = null;
+    } else if (action === 'done') {
+      if (row.status !== 'claimed') return { ok: false, error: 'Press “I’ll make it” first.' };
+      if (!isClaimer && !isAsker && !actor.manager) return { ok: false, error: `Only ${row.claimer_name} or ${row.asker_name} can mark it done.` };
+      status = 'done';
+    } else {
+      if (!isAsker && !actor.manager) return { ok: false, error: `Only ${row.asker_name} can cancel their request.` };
+      status = 'cancelled';
+    }
+    const updated = this.sql
+      .exec<RequestRow>(
+        'UPDATE requests SET status = ?, claimer = ?, claimer_name = ?, updated = ? WHERE id = ? RETURNING *',
+        status,
+        claimer,
+        claimerName,
+        Date.now(),
+        id,
+      )
+      .one();
+    await this.changed();
+    return { ok: true, row: updated };
+  }
+
+  // ---------- Cooldowns ----------
+
+  private timers(): CooldownTimer[] {
+    return this.sql
+      .exec<{ key: string; character: string; owner: string; cooldown: string; ends: number }>(
+        'SELECT t.character AS key, c.name AS character, c.owner AS owner, t.cooldown AS cooldown, t.ends AS ends FROM cooldowns t JOIN characters c ON c.key = t.character ORDER BY t.ends',
+      )
+      .toArray()
+      .flatMap((t) => {
+        const cd = cooldownByKey(t.cooldown);
+        return cd ? [{ ...t, name: cd.name }] : [];
+      });
+  }
+
+  async cooldownList(): Promise<CooldownTimer[]> {
+    return this.timers();
+  }
+
+  /** Someone used a cooldown: it's ready again after its full length, or `hoursLeft` if they say so. */
+  async useCooldown(actor: Actor, name: string, key: string, hoursLeft?: number): Promise<Outcome> {
+    const cd = cooldownByKey(key);
+    if (!cd) return { ok: false, error: `Pick one from the list: ${COOLDOWNS.map((c) => c.name).join(', ')}.` };
+    const found = this.editable(actor, name);
+    if (!found.ok) return found;
+    const character = this.characters().find((c) => nameKey(c.name) === found.row.key)!;
+    if (!hasCooldown(character, cd)) {
+      return { ok: false, error: `${character.name} can’t make ${cd.name} yet, going by what’s logged. Check /mine.` };
+    }
+    const ms = (hoursLeft ? hoursLeft * 3600 : cd.seconds) * 1000 * this.scale;
+    const ends = Date.now() + ms;
+    this.sql.exec(
+      'INSERT OR REPLACE INTO cooldowns (character, cooldown, ends, notified) VALUES (?, ?, ?, 0)',
+      found.row.key,
+      cd.key,
+      ends,
+    );
+    await this.changed();
+    await this.wake(ends);
+    return { ok: true, message: `${character.name}’s ${cd.name} is ready again <t:${Math.floor(ends / 1000)}:R>. I’ll message you then.` };
+  }
+
+  /** Cooldowns that have come ready: a message to each owner, once. */
+  private async cooldownsReady(now: number) {
+    const due = this.timers().filter((t) => t.ends <= now);
+    const fresh = due.filter(
+      (t) =>
+        this.sql.exec(
+          'UPDATE cooldowns SET notified = 1 WHERE character = ? AND cooldown = ? AND notified = 0',
+          t.key,
+          t.cooldown,
+        ).rowsWritten,
+    );
+    if (!fresh.length) return;
+    if (this.setting('boardMessage')) this.setSetting('boardDirty', '1');
+    const byOwner = new Map<string, CooldownTimer[]>();
+    for (const t of fresh) byOwner.set(t.owner, [...(byOwner.get(t.owner) ?? []), t]);
+    for (const [owner, list] of byOwner) {
+      const what = list.map((t) => `${t.character}’s ${t.name}`).join(', ');
+      await this.dm(owner, `${what} ${list.length === 1 ? 'is' : 'are'} ready again (${this.guildLabel()}).`);
+    }
+  }
+
+  // ---------- Stale reminders ----------
+
+  async setReminders(actor: Actor, on: boolean): Promise<Outcome> {
+    this.sql.exec(
+      'INSERT INTO people (owner, reminders) VALUES (?, ?) ON CONFLICT (owner) DO UPDATE SET reminders = excluded.reminders',
+      actor.id,
+      on ? 1 : 0,
+    );
+    return {
+      ok: true,
+      message: on
+        ? `I’ll message you if your characters go ${STALE_DAYS} days without an update.`
+        : 'No more reminders about out-of-date entries. `/mine reminders:True` turns them back on.',
+    };
+  }
+
+  /** Once a day: anyone whose characters haven't changed in a month gets one message about it, and not
+   *  another for a month. */
+  private async nudgeStale(now: number) {
+    if (!this.env.DISCORD_BOT_TOKEN) return;
+    const last = Number(this.setting('nudgeCheck') ?? 0);
+    if (now - last < DAY_MS * this.scale) return;
+    this.setSetting('nudgeCheck', String(now));
+    const staleBefore = now - STALE_DAYS * DAY_MS * this.scale;
+    const stale = this.characters().filter((c) => c.updated < staleBefore);
+    const byOwner = new Map<string, Character[]>();
+    for (const c of stale) byOwner.set(c.owner, [...(byOwner.get(c.owner) ?? []), c]);
+    for (const [owner, list] of byOwner) {
+      const person = this.sql.exec<{ reminders: number; nudged: number }>('SELECT * FROM people WHERE owner = ?', owner).toArray()[0];
+      if (person && (!person.reminders || person.nudged > staleBefore)) continue;
+      this.sql.exec(
+        'INSERT INTO people (owner, nudged) VALUES (?, ?) ON CONFLICT (owner) DO UPDATE SET nudged = excluded.nudged',
+        owner,
+        now,
+      );
+      const lines = list.map((c) => {
+        const skills = Object.entries(c.skills)
+          .map(([p, n]) => `${professionName(p as ProfessionId)} ${n}`)
+          .join(', ');
+        return `- **${c.name}**: ${skills || 'no professions'}`;
+      });
+      await this.dm(
+        owner,
+        [
+          `Your crafters in ${this.guildLabel()} haven’t changed in ${STALE_DAYS}+ days. Still right?`,
+          ...lines,
+          'Update with `/prof set`, or `/prof forget` a character you’ve stopped playing. `/mine reminders:False` stops these.',
+        ].join('\n'),
+      );
+    }
   }
 }

@@ -13,7 +13,12 @@ no addon to install and nothing to export from the game:
 - **`/recipe bulk`** and **`/recipe edit`**: for a lot at once. Bulk opens a box to paste a list into, one
   recipe per line ("Pattern:" and the like are fine); edit sends a private link, good for two hours, to a
   checklist of every recipe the character could have.
-- **`/want`**: asks for something in the channel and pings the people whose characters can make it.
+- **`/want`**: asks for something in the channel, with what it takes, and pings the people whose characters
+  can make it. They press **I'll make it**, then **Done**, which pings the asker. Open ones are on the board.
+- **`/cooldown used`** after a Mooncloth, a transmute or the Salt Shaker: anvil messages you when it's ready,
+  and the board and `/cooldown list` show everyone's.
+- **Reminders**: if someone's characters go a month without an update, anvil messages them once to check.
+  `/mine reminders:False` turns that off.
 - **`/whocan`**: who can make something, answered in the channel. It names who has logged it or has the
   skill for it, and when a recipe nobody has turns up, who has the skill to learn it.
 - **`/crafters`**, **`/mine`**: everyone in a profession; what you've logged.

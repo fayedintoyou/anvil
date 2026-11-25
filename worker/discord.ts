@@ -1,8 +1,8 @@
 // The small part of Discord's interactions API anvil uses: signature checks, and the shapes of what
 // arrives and what goes back. https://discord.com/developers/docs/interactions/receiving-and-responding
 
-export const InteractionType = { Ping: 1, Command: 2, Autocomplete: 4, ModalSubmit: 5 } as const;
-export const ResponseType = { Pong: 1, Message: 4, Choices: 8, Modal: 9 } as const;
+export const InteractionType = { Ping: 1, Command: 2, Component: 3, Autocomplete: 4, ModalSubmit: 5 } as const;
+export const ResponseType = { Pong: 1, Message: 4, UpdateMessage: 7, Choices: 8, Modal: 9 } as const;
 export const OptionType = { Subcommand: 1, String: 3, Integer: 4, Boolean: 5 } as const;
 const EPHEMERAL = 1 << 6;
 const MANAGE_GUILD = 1n << 5n;
@@ -17,6 +17,8 @@ export interface Option {
 
 export interface Interaction {
   type: number;
+  application_id?: string;
+  token?: string;
   guild_id?: string;
   channel_id?: string;
   member?: { nick?: string | null; permissions?: string; user: DiscordUser };
@@ -127,4 +129,34 @@ export function modal(id: string, title: string, label: string, placeholder: str
 
 export function modalText(i: Interaction): string {
   return i.data?.components?.flatMap((row) => row.components).find((c) => c.custom_id === 'text')?.value ?? '';
+}
+
+export interface Button {
+  id: string;
+  label: string;
+  style: 'primary' | 'secondary' | 'success' | 'danger';
+}
+
+const BUTTON_STYLE = { primary: 1, secondary: 2, success: 3, danger: 4 };
+
+/** One row of buttons, for a message's `components`. */
+export function buttons(list: Button[]) {
+  return list.length
+    ? [{ type: 1, components: list.map((b) => ({ type: 2, custom_id: b.id, label: b.label, style: BUTTON_STYLE[b.style] })) }]
+    : [];
+}
+
+/** The reply to a button press that rewrites the message the button is on. Edits never ping anyone. */
+export function updateMessage(content: string, components: unknown[]) {
+  return { type: ResponseType.UpdateMessage, data: { content, components, allowed_mentions: { parse: [] } } };
+}
+
+/** A further message after replying to an interaction, through its token (no bot token needed). Unlike an
+ *  edit, it pings whoever `mention` lists. */
+export function followUp(env: Env, i: Interaction, content: string, mention: string[]): Promise<Response> {
+  return fetch(`${env.DISCORD_API ?? 'https://discord.com/api/v10'}/webhooks/${i.application_id}/${i.token}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ content, allowed_mentions: { parse: [], users: mention } }),
+  });
 }

@@ -40,6 +40,7 @@ async function fakeDiscord() {
       res.end(body === undefined ? undefined : JSON.stringify(body));
     };
     if (req.url.includes(`/channels/${LOCKED}/`)) return send(403, { code: 50013, message: 'Missing Permissions' });
+    if (req.url === '/users/@me/channels') return send(200, { id: `dm-${JSON.parse(text).recipient_id}` });
     if (req.method === 'POST') return send(200, { id: `80000000000000000${++posted}` });
     if (req.method === 'DELETE') return send(204);
     return send(200, {});
@@ -61,18 +62,13 @@ async function fakeDiscord() {
   };
 }
 
-let BASE = process.env.BASE;
-let server;
-let store;
-let discord;
-if (!BASE) {
-  discord = await fakeDiscord();
-  store = mkdtempSync(join(tmpdir(), 'anvil-e2e-'));
+/** A fresh `wrangler dev` on its own store, with this run's key and stand-in Discord API, plus `vars`. */
+async function startWrangler(vars = []) {
+  const store = mkdtempSync(join(tmpdir(), 'anvil-e2e-'));
   const port = 8790 + Math.floor(Math.random() * 200);
-  BASE = `http://127.0.0.1:${port}`;
   const args = ['wrangler', 'dev', '--port', String(port), '--ip', '127.0.0.1', '--persist-to', store];
-  const vars = [`DISCORD_PUBLIC_KEY:${PUBLIC_HEX}`, `DISCORD_API:${discord.url}`, 'DISCORD_BOT_TOKEN:test-token', 'BOARD_DELAY_MS:300'];
-  server = spawn('npx', [...args, ...vars.flatMap((v) => ['--var', v])], {
+  const all = [`DISCORD_PUBLIC_KEY:${PUBLIC_HEX}`, `DISCORD_API:${discord.url}`, 'DISCORD_BOT_TOKEN:test-token', 'BOARD_DELAY_MS:300', ...vars];
+  const proc = spawn('npx', [...args, ...all.flatMap((v) => ['--var', v])], {
     env: { ...process.env, WRANGLER_SEND_METRICS: 'false' },
     stdio: ['ignore', 'pipe', 'pipe'],
     // Its own process group, so stopping it stops wrangler and workerd under npx too.
@@ -86,9 +82,32 @@ if (!BASE) {
         resolve();
       }
     };
-    server.stdout.on('data', onData);
-    server.stderr.on('data', onData);
+    proc.stdout.on('data', onData);
+    proc.stderr.on('data', onData);
   });
+  return {
+    base: `http://127.0.0.1:${port}`,
+    stop() {
+      try {
+        process.kill(-proc.pid, 'SIGTERM');
+      } catch {
+        proc.kill('SIGTERM');
+      }
+      proc.stdout.destroy();
+      proc.stderr.destroy();
+      proc.unref();
+      rmSync(store, { recursive: true, force: true });
+    },
+  };
+}
+
+let BASE = process.env.BASE;
+let discord;
+const servers = [];
+if (!BASE) {
+  discord = await fakeDiscord();
+  servers.push(await startWrangler());
+  BASE = servers[0].base;
 }
 
 // ---------- Discord, played by this script ----------
@@ -116,6 +135,8 @@ function interaction(who, type, name, options, channel = CHANNEL) {
   const p = people[who];
   return {
     type,
+    application_id: 'app-1',
+    token: `token-${type}-${Date.now()}`,
     guild_id: GUILD,
     channel_id: channel,
     member: { nick: p.name, permissions: p.permissions, user: { id: p.id, username: p.name.toLowerCase() } },
@@ -134,6 +155,14 @@ async function run(who, name, sub, values = {}, { channel } = {}) {
   const body = await response.json();
   assert.equal(body.type, 4, `/${name} ${sub ?? ''} answered with a message`);
   return { text: body.data.content, ephemeral: body.data.flags === 64, data: body.data };
+}
+
+/** Pressing a button on a message: the answer either rewrites that message (7) or is a private reply. */
+async function press(who, customId) {
+  const i = interaction(who, 3);
+  i.data = { custom_id: customId, component_type: 2 };
+  const body = await (await post(i)).json();
+  return { updated: body.type === 7, text: body.data.content, buttons: (body.data.components?.[0]?.components ?? []).map((c) => c.custom_id), data: body.data };
 }
 
 /** A command answered with a pop-up rather than a message (/recipe bulk). */
@@ -252,6 +281,18 @@ try {
   assert.match(r.text, /learn it if the recipe turns up: Brakka \(120\)/);
   r = await run('faye', 'whocan', null, { recipe: 'mooncloth' });
   assert.ok(r.text.startsWith('[**Mooncloth**](<https://www.wowhead.com/forever/spell=18560>)'), 'a typed name still finds the recipe, linked to Wowhead without a preview');
+  assert.match(r.text, /\nTakes: 2 Felcloth\n/, 'and says what it takes');
+
+  // Cooldowns: Thalia has Mooncloth logged, Brakka doesn't.
+  const cds = await suggest('faye', 'cooldown', 'used', { cooldown: 'moon' }, 'cooldown');
+  assert.deepEqual(cds.map((c) => c.value), ['recipe-18560']);
+  r = await run('faye', 'cooldown', 'used', { cooldown: 'recipe-18560', character: 'Thalia' });
+  assert.match(r.text, /Thalia’s Mooncloth is ready again <t:\d+:R>/);
+  r = await run('brakka', 'cooldown', 'used', { cooldown: 'recipe-18560', character: 'Brakka' });
+  assert.match(r.text, /Brakka can’t make Mooncloth yet/);
+  r = await run('brakka', 'cooldown', 'list');
+  assert.ok(!r.ephemeral);
+  assert.match(r.text, /\*\*Thalia\*\* · Mooncloth · ready <t:\d+:R>/);
   const asked = await suggest('faye', 'whocan', null, { recipe: 'flask of the ti' }, 'recipe');
   assert.match(asked[0].name, /Flask of the Titans · Alchemy 300/);
 
@@ -411,6 +452,30 @@ try {
   assert.match(r.text, /“I have the mats”/);
   assert.ok(r.text.includes(`<@${people.faye.id}> can make it (Ysolde).`), 'Thalia has the skill but hasn’t logged it');
   assert.deepEqual(r.data.allowed_mentions, { parse: [], users: [people.faye.id] }, 'only the crafters are pinged');
+  assert.match(r.text, /Takes: [^\n]*Gromsblood/, 'with what it takes');
+  const [claim, cancel] = r.data.components[0].components.map((c) => c.custom_id);
+  assert.match(claim, /^req:\d+:claim$/);
+  assert.match(cancel, /^req:\d+:cancel$/);
+  let b = await press('faye', claim);
+  assert.ok(b.updated, 'taking a request on rewrites the post');
+  assert.match(b.text, new RegExp(`<@${people.faye.id}> is making it`));
+  assert.deepEqual(b.data.allowed_mentions, { parse: [] }, 'rewrites ping nobody');
+  const [done, unclaim] = b.buttons;
+  b = await press('officer', claim);
+  assert.ok(!b.updated);
+  assert.match(b.text, /Faye is already making it/);
+  b = await press('brakka', unclaim);
+  assert.match(b.text, /Only Faye can let this one go/);
+  b = await press('faye', done);
+  assert.ok(b.updated);
+  assert.match(b.text, new RegExp(`Made by <@${people.faye.id}>`));
+  assert.deepEqual(b.buttons, [], 'a finished request has no buttons');
+  const ping = await discord.waitFor((c) => c.method === 'POST' && c.path === '/webhooks/app-1/' + c.path.split('/').pop() && c.body?.content?.includes('is ready'), 'the asker pinged');
+  assert.match(ping.body.content, new RegExp(`^<@${people.brakka.id}> your \\*\\*Flask of the Titans\\*\\* is ready, from <@${people.faye.id}>`));
+  assert.deepEqual(ping.body.allowed_mentions, { parse: [], users: [people.brakka.id] });
+  b = await press('faye', done);
+  assert.match(b.text, /already done/);
+
   r = await run('faye', 'want', null, { recipe: '17635' });
   assert.match(r.text, /Only your own characters can make it/);
   assert.deepEqual(r.data.allowed_mentions.users, [], 'nobody pings themselves');
@@ -435,21 +500,54 @@ try {
   r = await run('faye', 'whocan', null, { recipe: MOONCLOTH });
   assert.match(r.text, /Nobody’s logged this one yet/);
 
+  // Time passing, on a second wrangler dev where a day is 86 ms: a cooldown coming ready, a month-old
+  // entry, and a board's requests and cooldowns.
+  if (discord) {
+    servers.push(await startWrangler(['TIME_SCALE:0.000001']));
+    BASE = servers[1].base;
+    const from = discord.calls.length;
+    const since = (match) => discord.calls.slice(from).filter(match);
+    await run('faye', 'prof', 'set', { character: 'Thalia', profession: 'tailoring', skill: 250 });
+    await run('faye', 'recipe', 'add', { character: 'Thalia', recipe: MOONCLOTH });
+    await run('brakka', 'prof', 'set', { character: 'Brakka', profession: 'leatherworking', skill: 260 });
+    r = await run('brakka', 'mine', null, { reminders: false });
+    assert.match(r.text, /No more reminders/);
+    r = await run('officer', 'board');
+    assert.match(r.text, /board is up/);
+    r = await run('brakka', 'cooldown', 'used', { cooldown: 'salt-shaker' });
+    assert.match(r.text, /Brakka’s Salt Shaker is ready again/, 'any leatherworker at 250 can have the Salt Shaker');
+    await run('faye', 'cooldown', 'used', { cooldown: 'recipe-18560' });
+    await run('brakka', 'want', null, { recipe: MOONCLOTH });
+
+    const ready = await discord.waitFor(
+      (c) => discord.calls.indexOf(c) >= from && c.path === `/channels/dm-${people.faye.id}/messages` && /Mooncloth is ready again/.test(c.body.content),
+      'a message when the cooldown is ready',
+    );
+    assert.match(ready.body.content, /^Thalia’s Mooncloth is ready again/);
+    const nudge = await discord.waitFor(
+      (c) => discord.calls.indexOf(c) >= from && c.path === `/channels/dm-${people.faye.id}/messages` && /haven’t changed/.test(c.body.content),
+      'a reminder about a month-old entry',
+    );
+    assert.match(nudge.body.content, /- \*\*Thalia\*\*: Tailoring 250/);
+    assert.match(nudge.body.content, /`\/mine reminders:False` stops these/);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    assert.equal(
+      since((c) => c.path === `/channels/dm-${people.brakka.id}/messages` && /haven’t changed/.test(c.body.content)).length,
+      0,
+      'someone who turned reminders off gets none',
+    );
+    assert.equal(since((c) => /Mooncloth is ready again/.test(c.body?.content ?? '')).length, 1, 'a cooldown is announced once');
+    const board = since((c) => c.method === 'PATCH').pop();
+    const fields = board.body.embeds[0].fields;
+    assert.match(fields.find((f) => f.name.startsWith('Requests')).value, /Mooncloth for Brakka’s player · open/);
+    assert.match(fields.find((f) => f.name === 'Cooldowns').value, /Thalia · Mooncloth · \*\*ready\*\*/);
+  }
+
   console.log(`ok: ${pageUrl}`);
 } finally {
   await browser.close();
   discord?.close();
-  if (server) {
-    try {
-      process.kill(-server.pid, 'SIGTERM');
-    } catch {
-      server.kill('SIGTERM');
-    }
-    server.stdout.destroy();
-    server.stderr.destroy();
-    server.unref();
-  }
-  if (store) rmSync(store, { recursive: true, force: true });
+  for (const s of servers) s.stop();
 }
 
 if (errors.length) {

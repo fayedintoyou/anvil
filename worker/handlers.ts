@@ -3,8 +3,21 @@ import { isProfessionId, professionName } from '../src/core/professions';
 import { isNotable, matchRecipeLines, recipe as recipeById, recipeLabel, searchRecipes } from '../src/core/recipes';
 import { checkCharacterName, checkSkill, nameKey } from '../src/core/validate';
 import { whoCan } from '../src/core/whocan';
-import { actorOf, choices, commandOptions, message, modal, modalText, type Interaction, type Option } from './discord';
-import { HELP, changesText, craftersText, mineText, wantText, whoCanText } from './format';
+import {
+  actorOf,
+  choices,
+  commandOptions,
+  followUp,
+  message,
+  modal,
+  modalText,
+  updateMessage,
+  type Interaction,
+  type Option,
+} from './discord';
+import { HELP, changesText, cooldownsText, craftersText, mineText, requestMessage, wantText, whoCanText } from './format';
+import { COOLDOWNS } from '../src/core/crafting';
+import type { RequestAction } from './guild-object';
 
 const get = (options: Option[], name: string) => options.find((o) => o.name === name)?.value;
 
@@ -38,6 +51,16 @@ export async function autocomplete(env: Env, i: Interaction) {
         .filter((c) => (c.owner === actor.id || actor.manager) && nameKey(c.name).startsWith(typedKey))
         .sort((a, b) => Number(b.owner === actor.id) - Number(a.owner === actor.id) || a.name.localeCompare(b.name))
         .map((c) => ({ name: c.owner === actor.id ? c.name : `${c.name} (${c.ownerName})`, value: c.name })),
+    );
+  }
+
+  if (focused.name === 'cooldown') {
+    const typedKey = typed.trim().toLowerCase();
+    return choices(
+      COOLDOWNS.filter((c) => c.name.toLowerCase().includes(typedKey)).map((c) => ({
+        name: `${c.name} · ${Math.round(c.seconds / 3600)} h`,
+        value: c.key,
+      })),
     );
   }
 
@@ -87,7 +110,9 @@ export async function command(env: Env, i: Interaction, origin: string) {
     if (!r) return message('I couldn’t find that recipe. Pick one from the list as you type.');
     const note = String(get(options, 'note') ?? '').trim();
     const { text, mention } = wantText(r, whoCan(r, (await g.roster()).characters), actor.id, note);
-    return message(text, { ephemeral: false, mention });
+    const { content, components } = requestMessage(await g.openRequest(actor, r.id, text));
+    const reply = message(content, { ephemeral: false, mention });
+    return { ...reply, data: { ...reply.data, components } };
   }
 
   if (name === 'crafters') {
@@ -96,7 +121,11 @@ export async function command(env: Env, i: Interaction, origin: string) {
     return message(craftersText(prof, await g.roster()), { ephemeral: false });
   }
 
+  if (name === 'cooldown' && sub === 'list') return message(cooldownsText(await g.cooldownList()), { ephemeral: false });
+
   if (name === 'mine') {
+    const reminders = get(options, 'reminders');
+    if (typeof reminders === 'boolean') return reply(await g.setReminders(actor, reminders));
     const roster = await g.roster();
     return message(mineText(roster.characters.filter((c) => c.owner === actor.id)));
   }
@@ -124,6 +153,11 @@ export async function command(env: Env, i: Interaction, origin: string) {
   if (named === undefined) return message('Which character? Add `character:` with its name once, and I’ll remember it after that.');
   const character = checkCharacterName(named);
   if (!character.ok) return message(character.error);
+
+  if (name === 'cooldown' && sub === 'used') {
+    const hours = get(options, 'hours_left');
+    return reply(await g.useCooldown(actor, character.value, String(get(options, 'cooldown') ?? ''), typeof hours === 'number' ? hours : undefined));
+  }
 
   if (name === 'prof') {
     if (sub === 'forget') return reply(await g.forget(actor, character.value));
@@ -177,3 +211,23 @@ export async function modalSubmit(env: Env, i: Interaction) {
   if (!result.ok) return message(result.error);
   return message(changesText(result, unknown, matched.filter((r) => !isNotable(r)).map((r) => r.name)));
 }
+
+const ACTIONS: RequestAction[] = ['claim', 'unclaim', 'done', 'cancel'];
+
+/** A button on a /want post. The post is rewritten to match; finishing one also pings the asker, in a
+ *  message of its own, since edits don't ping. That ping goes out after the reply, through `later`. */
+export async function component(env: Env, i: Interaction, later: (work: Promise<unknown>) => void) {
+  const actor = actorOf(i);
+  const m = /^req:(\d+):(\w+)$/.exec(i.data?.custom_id ?? '');
+  if (!i.guild_id || !actor || !m || !ACTIONS.includes(m[2] as RequestAction)) return message('That button doesn’t work any more.');
+  const result = await guild(env, i).requestAction(actor, Number(m[1]), m[2] as RequestAction);
+  if (!result.ok) return message(result.error);
+  const q = result.row;
+  if (q.status === 'done' && q.asker !== q.claimer) {
+    const what = recipeById(q.recipe)?.name ?? 'request';
+    later(followUp(env, i, `<@${q.asker}> your **${what}** is ready, from <@${q.claimer}>.`, [q.asker]));
+  }
+  const { content, components } = requestMessage(q);
+  return updateMessage(content, components);
+}
+

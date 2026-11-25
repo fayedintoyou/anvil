@@ -16,7 +16,9 @@
     "types": "wrangler types worker/worker-configuration.d.ts",
     "recipes": "node scripts/recipes.mjs",
     "register": "node scripts/register.ts",
-    "deploy": "vite build && wrangler deploy"
+    "deploy": "vite build && wrangler deploy",
+    "wowhead": "node scripts/wowhead.mjs",
+    "audit": "node scripts/audit.mjs"
   },
   "dependencies": {
     "@fontsource-variable/fraunces": "5.3.0",

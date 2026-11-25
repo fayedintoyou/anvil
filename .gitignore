@@ -6,5 +6,5 @@ e2e/shots/
 *.log
 .DS_Store
 worker/worker-configuration.d.ts
-.audit-cache.json
+.wowhead-cache.json
 audit-report.json

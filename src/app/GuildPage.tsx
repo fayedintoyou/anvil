@@ -3,6 +3,7 @@ import type { Character, ProfessionId, Recipe, Roster } from '../core/types';
 import { MAX_SKILL, PROFESSIONS } from '../core/types';
 import { RECIPES, isNotable, recipe, recipeLabel, searchRecipes, wowheadUrl } from '../core/recipes';
 import { STALE_DAYS, isStale } from '../core/stale';
+import { reagentText } from '../core/crafting';
 import { professionName } from '../core/professions';
 import { whoCan } from '../core/whocan';
 import { Wordmark } from './App';
@@ -149,6 +150,7 @@ function Search({ characters }: { characters: Character[] }) {
               {professionName(picked.prof)} {picked.skill} · {LEARNED[picked.learned]}
             </span>
           </p>
+          {reagentText(picked) && <p className="hint takes">Takes {reagentText(picked)}</p>}
           {result.crafters.length ? (
             <ul className="crafters">
               {result.crafters.map((c) => (

@@ -16,8 +16,11 @@
   tests this when the endpoint is saved and disables endpoints that don't refuse bad signatures.
 - Changing `worker/commands.ts` needs nothing more: each deploy of `main` registers the commands with
   Discord (docs/discord.md).
-- The board is the only thing that calls Discord as the bot (`discordApi`, with `DISCORD_BOT_TOKEN`). It
-  edits from the Durable Object's alarm, never inside a command, so a burst of changes is one edit.
+- Calls to Discord as the bot (`discordApi`, with `DISCORD_BOT_TOKEN`) all happen in the Durable Object's
+  alarm: board edits (a burst of changes is one edit), cooldown messages, and the daily stale check. The
+  alarm is one per object, so set it with `wake()`, which only ever brings it earlier.
+- `src/core/reagents.json` and `src/core/wowhead.json` are generated: `npm run recipes`, then `npm run
+  wowhead` (item names and cooldown lengths from Wowhead's Forever tooltips). `npm run audit` checks the list.
 - `/recipe edit` links (`/e/<server>/<token>`) act as the person who asked, for two hours. Treat the token
   like a password: no-store, noindex, no referrer, and every save goes through the same ownership checks.
 - Renaming or replacing the Durable Object class needs a new entry in `migrations` in `wrangler.jsonc`.

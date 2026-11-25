@@ -1,6 +1,6 @@
 import { GuildObject } from './guild-object';
 import { InteractionType, ResponseType, verify, type Interaction } from './discord';
-import { autocomplete, command, modalSubmit } from './handlers';
+import { autocomplete, command, component, modalSubmit } from './handlers';
 
 export { GuildObject };
 
@@ -17,7 +17,7 @@ function json(body: unknown, status = 200, headers: HeadersInit = {}): Response 
 }
 
 /** Discord's interactions endpoint: slash commands and their autocomplete, each signed by Discord. */
-async function interactions(request: Request, env: Env, url: URL): Promise<Response> {
+async function interactions(request: Request, env: Env, url: URL, ctx: ExecutionContext): Promise<Response> {
   if (request.method !== 'POST') return new Response('Method not allowed.', { status: 405 });
   const body = await request.text();
   if (body.length > MAX_BODY) return new Response('Too large.', { status: 413 });
@@ -29,6 +29,7 @@ async function interactions(request: Request, env: Env, url: URL): Promise<Respo
   if (interaction.type === InteractionType.Autocomplete) return json(await autocomplete(env, interaction));
   if (interaction.type === InteractionType.Command) return json(await command(env, interaction, url.origin));
   if (interaction.type === InteractionType.ModalSubmit) return json(await modalSubmit(env, interaction));
+  if (interaction.type === InteractionType.Component) return json(await component(env, interaction, (work) => ctx.waitUntil(work)));
   return new Response('Unknown interaction.', { status: 400 });
 }
 
@@ -90,10 +91,10 @@ async function guildPage(request: Request, env: Env, url: URL): Promise<Response
 }
 
 export default {
-  async fetch(request, env): Promise<Response> {
+  async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
     try {
-      if (url.pathname === '/interactions') return await interactions(request, env, url);
+      if (url.pathname === '/interactions') return await interactions(request, env, url, ctx);
       if (url.pathname.startsWith('/api/g/') && request.method === 'GET') {
         const g = await guildFor(env, url.pathname.split('/').slice(3));
         return g ? json(await g.roster()) : json({ error: 'This page doesn’t exist.' }, 404);

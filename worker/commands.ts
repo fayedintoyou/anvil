@@ -118,6 +118,31 @@ export const COMMANDS = [
   {
     name: 'mine',
     description: 'What you’ve logged for your characters',
+    options: [
+      {
+        name: 'reminders',
+        description: 'Whether anvil may message you when your entries go a month without an update',
+        type: BOOLEAN,
+        required: false,
+      },
+    ],
+  },
+  {
+    name: 'cooldown',
+    description: 'Mooncloth, transmutes, the Salt Shaker: when they’re ready again',
+    options: [
+      {
+        name: 'used',
+        description: 'You just used one: anvil messages you when it’s ready',
+        type: SUBCOMMAND,
+        options: [
+          { name: 'cooldown', description: 'Which one', type: STRING, required: true, autocomplete: true },
+          { name: 'hours_left', description: 'If it wasn’t just now: hours until it’s ready, as the game shows', type: INTEGER, required: false, min_value: 1, max_value: 120 },
+          character(),
+        ],
+      },
+      { name: 'list', description: 'Everyone’s cooldowns, and when they’re ready', type: SUBCOMMAND },
+    ],
   },
   {
     name: 'board',

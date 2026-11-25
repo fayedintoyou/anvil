@@ -48,6 +48,13 @@ Channel**, **Send Messages** and **Embed Links** (channel settings → Permissio
 says so if it can't post. Running `/board` again moves it, `/board stop:True` takes it down, and deleting
 the message by hand stops the edits too.
 
+## Messages anvil sends on its own
+
+With the bot token, anvil also sends direct messages: when someone's cooldown is ready, and once a month
+to someone whose characters haven't changed in that long (`/mine reminders:False` stops those). Someone
+who doesn't take DMs from server members just doesn't get them. Finishing a `/want` request pings the
+asker in the channel through the interaction itself, which needs no permissions.
+
 ## Commands
 
 The list lives in `worker/commands.ts`. Each deploy of `main` registers it, globally: changes reach every

@@ -1,5 +1,8 @@
-// Where anvil's recipe data comes from, and the small Lua reader for it. Shared by scripts/recipes.mjs,
-// which builds the list, and scripts/audit.mjs, which checks it against Wowhead.
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+
+// Where anvil's recipe data comes from, the small Lua reader for it, and a polite reader of Wowhead's WoW
+// Forever tooltips. Shared by scripts/recipes.mjs (the list), scripts/wowhead.mjs (item names and
+// cooldowns) and scripts/audit.mjs (checks against Wowhead).
 
 export const REGISTRY = {
   repo: 'colettamattia91-cloud/Recipe-Registry',
@@ -107,4 +110,55 @@ export function tableAfter(text, marker) {
 /** Recipe Registry's table of every recipe by spell id. */
 export async function loadRegistry() {
   return tableAfter(await fetchText(REGISTRY, REGISTRY.path), 'recipesBySpellId = {');
+}
+
+// ---------- Wowhead's WoW Forever tooltips ----------
+
+const CACHE = new URL('../.wowhead-cache.json', import.meta.url);
+
+/** Answers already had, kept between runs so a rerun only asks Wowhead about what's new. */
+export function loadCache() {
+  return existsSync(CACHE) ? JSON.parse(readFileSync(CACHE, 'utf8')) : {};
+}
+
+export function saveCache(cache) {
+  writeFileSync(CACHE, JSON.stringify(cache));
+}
+
+/** A spell or item from the public tooltip service Wowhead's link previews use: its name and its tooltip
+ *  as plain text, or null if Forever doesn't have it. */
+export async function wowheadTooltip(kind, id, cache) {
+  const key = `${kind}/${id}`;
+  if (key in cache) return cache[key];
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetch(`https://nether.wowhead.com/forever/tooltip/${kind}/${id}`, {
+      headers: { 'user-agent': 'anvil recipe data (github.com/fayedintoyou/anvil)' },
+    });
+    if (response.status === 404) return (cache[key] = null);
+    if (response.ok) {
+      const { name, tooltip: html } = await response.json();
+      return (cache[key] = { name, text: html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ') });
+    }
+    if (attempt >= 4) throw new Error(`${key}: ${response.status}`);
+    await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+  }
+}
+
+/** Runs `work` over `items` a few at a time, so Wowhead sees a polite trickle, saving answers as it goes. */
+export async function gently(cache, items, work, at = 4) {
+  let next = 0;
+  let done = 0;
+  await Promise.all(
+    Array.from({ length: at }, async () => {
+      while (next < items.length) {
+        const item = items[next++];
+        await work(item);
+        if (++done % 200 === 0) {
+          console.log(`${done}/${items.length}`);
+          saveCache(cache);
+        }
+      }
+    }),
+  );
+  saveCache(cache);
 }
