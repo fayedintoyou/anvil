@@ -251,11 +251,17 @@ export class GuildObject extends DurableObject<Env> {
         error: `${r.name} needs ${professionName(r.prof)} ${r.skill}, and ${row.name} has ${skill}. Update it with /prof set if that’s changed.`,
       };
     }
+    if (r.learned === 'trainer') {
+      // Nothing to log: the skill already counts it. Said plainly, since people reach for it expecting to.
+      return {
+        ok: true,
+        message: `${r.name} is taught by trainers, so ${row.name}’s ${professionName(r.prof)} ${skill} already counts it. Nothing to log: /whocan lists ${row.name} for it.`,
+      };
+    }
     this.sql.exec('INSERT OR IGNORE INTO recipes (character, recipe) VALUES (?, ?)', row.key, r.id);
     this.touch(row.key, actor);
     await this.boardChanged();
-    const note = r.learned === 'trainer' ? ' (A trainer teaches this one, so the skill alone already counted.)' : '';
-    return { ok: true, message: `Logged ${r.name} for ${row.name}.${note}` };
+    return { ok: true, message: `Logged ${r.name} for ${row.name}.` };
   }
 
   async removeRecipe(actor: Actor, name: string, recipeId: number): Promise<Outcome> {

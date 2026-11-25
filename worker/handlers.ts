@@ -55,7 +55,16 @@ export async function autocomplete(env: Env, i: Interaction) {
     }
     const filter = (r: Recipe) =>
       isNotable(r) && (!c || (c.skills[r.prof] !== undefined && c.skills[r.prof]! >= r.skill && !c.recipes.includes(r.id)));
-    return choices(searchRecipes(typed, filter).map(toChoice));
+    // Trainer recipes don't need logging, but people look for them anyway: list them after the rest, saying
+    // so, rather than leave them out and look as if anvil doesn't know them.
+    const trainer = (r: Recipe) => !isNotable(r) && (!c || c.skills[r.prof] !== undefined);
+    const trainerChoice = (r: Recipe) => {
+      const has = c?.skills[r.prof];
+      const why = has !== undefined && has >= r.skill ? 'counted from your skill' : `trainer, at ${professionName(r.prof)} ${r.skill}`;
+      return { name: `${recipeLabel(r)} · ${why}, nothing to log`, value: String(r.id) };
+    };
+    const found = searchRecipes(typed, filter).map(toChoice);
+    return choices([...found, ...searchRecipes(typed, trainer, 25 - found.length).map(trainerChoice)]);
   }
   return choices([]);
 }

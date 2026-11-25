@@ -212,7 +212,10 @@ try {
   assert.ok(moon.some((c) => c.value === MOONCLOTH), 'Mooncloth is offered at 250 tailoring');
   assert.ok(!moon.some((c) => c.value === MOONCLOTH_ROBE), 'the robe needs 275, so it isn’t');
   const silk = await suggest('faye', 'recipe', 'add', { character: 'Thalia', recipe: 'bolt of silk' }, 'recipe');
-  assert.equal(silk.length, 0, 'trainer recipes don’t need logging, so they aren’t offered');
+  assert.match(silk[0]?.name ?? '', /Bolt of Silk Cloth · counted from your skill, nothing to log/, 'trainer recipes are listed, saying they count already');
+  r = await run('faye', 'recipe', 'add', { character: 'Thalia', recipe: SILK_BOLT });
+  assert.match(r.text, /taught by trainers, so Thalia’s Tailoring 250 already counts it/);
+  assert.equal((await run('faye', 'mine')).text.includes('Bolt of Silk'), false, 'and nothing is logged');
 
   r = await run('faye', 'recipe', 'add', { character: 'Thalia', recipe: MOONCLOTH });
   assert.match(r.text, /Logged Mooncloth for Thalia/);
