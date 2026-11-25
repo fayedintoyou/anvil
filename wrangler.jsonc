@@ -11,7 +11,7 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/interactions", "/api/*", "/g/*"]
+    "run_worker_first": ["/interactions", "/api/*", "/g/*", "/e/*"]
   },
 
   // One Durable Object per Discord server, holding its characters, skills and logged recipes in its own

@@ -266,3 +266,58 @@ code {
 .missing ul { list-style: none; padding: 0 0.25rem 1rem; margin: 0; max-height: 24rem; overflow-y: auto; }
 .missing li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.25rem 0; font-size: 0.9375rem; }
 .missing li .meta { white-space: nowrap; }
+
+/* Recipe names link to Wowhead, quietly: the underline only shows on hover. */
+.recipe-link, .missing li a { color: inherit; text-decoration: none; }
+.recipe-link:hover, .missing li a:hover { color: var(--lamp-hot); text-decoration: underline; }
+
+/* Not updated in a month: still listed, but quieter, since the skill may be behind. */
+.prof li.stale { opacity: 0.55; }
+.prof li.stale .who { font-style: italic; }
+
+/* ---------- Recipe checklist (/recipe edit) ---------- */
+
+.edit { padding-bottom: 6rem; }
+.edit .search { max-width: 44rem; margin-top: 1.25rem; }
+.edit-group { max-width: 44rem; }
+.edit-group .section-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; margin-bottom: 0.5rem; }
+.ticks { list-style: none; margin: 0; padding: 0; }
+.ticks label {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2.75rem;
+  padding: 0.35rem 0.5rem;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+}
+.ticks label:hover { background: var(--wall-2); }
+.ticks input { width: 1.15rem; height: 1.15rem; accent-color: var(--lamp); }
+.ticks .meta { white-space: nowrap; }
+.savebar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem max(1.25rem, calc((100vw - 44rem) / 2)) calc(0.75rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line-strong);
+  background: rgba(7, 6, 11, 0.94);
+  backdrop-filter: blur(8px);
+}
+.button {
+  min-height: 2.75rem;
+  padding: 0.5rem 1.4rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--lamp);
+  color: var(--night);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.button:disabled { background: var(--wall-3); color: var(--muted); cursor: default; }

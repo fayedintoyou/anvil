@@ -46,3 +46,32 @@ export function searchRecipes(query: string, filter: (r: Recipe) => boolean = ()
 export function recipeLabel(r: Recipe): string {
   return r.makes && r.makes !== r.name ? `${r.name} → ${r.makes}` : r.name;
 }
+
+/** The recipe on Wowhead's Classic database, which shares WoW Forever's spell ids. */
+export function wowheadUrl(r: Recipe): string {
+  return `https://www.wowhead.com/classic/spell=${r.id}`;
+}
+
+// What the recipe items are called in the game, which people paste from tooltips and notes.
+const ITEM_PREFIX = /^(?:pattern|plans|formula|recipe|schematic|manual|design|blueprint)\s*:\s*/i;
+
+/** A pasted list, one recipe per line, matched to recipes: an exact name first (with or without its
+ *  item prefix, like "Pattern:"), otherwise the best search match. Blank lines and bullets are ignored. */
+export function matchRecipeLines(
+  text: string,
+  filter: (r: Recipe) => boolean = () => true,
+): { matched: Recipe[]; unknown: string[] } {
+  const matched = new Map<number, Recipe>();
+  const unknown: string[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/^[\s\-*•·\d.)]+/, '').replace(ITEM_PREFIX, '').replace(/[[\]]/g, '').trim();
+    if (!line) continue;
+    const key = fold(line);
+    const r =
+      RECIPES.find((x) => filter(x) && (fold(x.name) === key || (x.makes && fold(x.makes) === key))) ??
+      searchRecipes(line, filter, 1)[0];
+    if (r) matched.set(r.id, r);
+    else unknown.push(line);
+  }
+  return { matched: [...matched.values()], unknown };
+}

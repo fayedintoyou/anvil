@@ -88,6 +88,26 @@ export const COMMANDS = [
         type: SUBCOMMAND,
         options: [recipe('The recipe'), character()],
       },
+      {
+        name: 'bulk',
+        description: 'Paste a list of recipes, one per line, to log them all at once',
+        type: SUBCOMMAND,
+        options: [character()],
+      },
+      {
+        name: 'edit',
+        description: 'A private link to tick off a character’s recipes on the web',
+        type: SUBCOMMAND,
+        options: [character()],
+      },
+    ],
+  },
+  {
+    name: 'want',
+    description: 'Ask the guild for something made: pings the people who can craft it',
+    options: [
+      recipe('What you want made'),
+      { name: 'note', description: 'Anything to add, like “I have the mats”', type: STRING, required: false, max_length: 200 },
     ],
   },
   {

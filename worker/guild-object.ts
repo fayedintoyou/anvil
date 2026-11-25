@@ -13,6 +13,17 @@ import { boardMessage } from './board';
 
 export type Outcome = { ok: true; message: string } | { ok: false; error: string };
 
+/** What a batch of recipe changes did: the paste box and the checklist page both report it. */
+export type Changes =
+  | { ok: true; character: string; added: string[]; removed: string[]; tooLow: string[] }
+  | { ok: false; error: string };
+
+export interface EditView {
+  guildName: string;
+  character: Character;
+  expires: number;
+}
+
 interface CharacterRow extends Record<string, SqlStorageValue> {
   key: string;
   name: string;
@@ -22,14 +33,16 @@ interface CharacterRow extends Record<string, SqlStorageValue> {
 }
 
 const PAGE_KEY_LENGTH = 12;
+const EDIT_TOKEN_LENGTH = 24;
+const EDIT_LINK_MS = 2 * 60 * 60 * 1000;
 const BOARD_DELAY_MS = 30_000;
 const BOARD_SETTINGS = ['boardChannel', 'boardMessage'];
 const CANT_POST =
   'I can’t post here. In this channel’s settings → Permissions, give anvil View Channel, Send Messages and Embed Links, then try again.';
 
-function randomKey(): string {
+function randomKey(length = PAGE_KEY_LENGTH): string {
   const alphabet = 'abcdefghijkmnpqrstuvwxyz23456789';
-  const bytes = crypto.getRandomValues(new Uint8Array(PAGE_KEY_LENGTH));
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
   return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
 }
 
@@ -48,6 +61,9 @@ export class GuildObject extends DurableObject<Env> {
       );
       CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS last_used (owner TEXT PRIMARY KEY, character TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS edit_links (
+        token TEXT PRIMARY KEY, actor TEXT NOT NULL, character TEXT NOT NULL, expires INTEGER NOT NULL
+      );
     `);
   }
 
@@ -212,6 +228,7 @@ export class GuildObject extends DurableObject<Env> {
     this.sql.exec('DELETE FROM skills WHERE character = ?', key);
     this.sql.exec('DELETE FROM characters WHERE key = ?', key);
     this.sql.exec('DELETE FROM last_used WHERE character = ?', key);
+    this.sql.exec('DELETE FROM edit_links WHERE character = ?', key);
     await this.boardChanged();
     return { ok: true, message: `Forgot ${shown} and everything logged for them.` };
   }
@@ -250,6 +267,83 @@ export class GuildObject extends DurableObject<Env> {
     this.touch(row.key, actor);
     await this.boardChanged();
     return { ok: true, message: `Took ${recipeById(recipeId)?.name ?? 'that recipe'} off ${row.name}.` };
+  }
+
+  /** Many recipes at once. Ones the character lacks the profession or skill for are skipped and listed,
+   *  not refused, so one wrong line in a long paste doesn't lose the rest. */
+  async changeRecipes(actor: Actor, name: string, add: number[], remove: number[] = []): Promise<Changes> {
+    const found = this.editable(actor, name);
+    if (!found.ok) return found;
+    const { row } = found;
+    const skills = new Map(
+      this.sql
+        .exec<{ profession: string; skill: number }>('SELECT profession, skill FROM skills WHERE character = ?', row.key)
+        .toArray()
+        .map((s) => [s.profession, s.skill]),
+    );
+    const added: string[] = [];
+    const removed: string[] = [];
+    const tooLow: string[] = [];
+    for (const id of new Set(add)) {
+      const r = recipeById(id);
+      if (!r) continue;
+      if ((skills.get(r.prof) ?? -1) < r.skill) {
+        tooLow.push(`${r.name} (${professionName(r.prof)} ${r.skill})`);
+        continue;
+      }
+      if (this.sql.exec('INSERT OR IGNORE INTO recipes (character, recipe) VALUES (?, ?)', row.key, r.id).rowsWritten) {
+        added.push(r.name);
+      }
+    }
+    for (const id of new Set(remove)) {
+      if (this.sql.exec('DELETE FROM recipes WHERE character = ? AND recipe = ?', row.key, id).rowsWritten) {
+        removed.push(recipeById(id)?.name ?? String(id));
+      }
+    }
+    if (added.length || removed.length) {
+      this.touch(row.key, actor);
+      await this.boardChanged();
+    }
+    return { ok: true, character: row.name, added, removed, tooLow };
+  }
+
+  // ---------- Private edit links ----------
+
+  /** A link to tick recipes on the web, for one character, as this person, for two hours. */
+  async editLink(actor: Actor, name: string): Promise<{ ok: true; token: string; character: string } | { ok: false; error: string }> {
+    const found = this.editable(actor, name);
+    if (!found.ok) return found;
+    const now = Date.now();
+    this.sql.exec('DELETE FROM edit_links WHERE expires < ?', now);
+    const token = randomKey(EDIT_TOKEN_LENGTH);
+    this.sql.exec(
+      'INSERT INTO edit_links (token, actor, character, expires) VALUES (?, ?, ?, ?)',
+      token,
+      JSON.stringify(actor),
+      found.row.key,
+      now + EDIT_LINK_MS,
+    );
+    return { ok: true, token, character: found.row.name };
+  }
+
+  private editLinkRow(token: string) {
+    const link = this.sql
+      .exec<{ actor: string; character: string; expires: number }>('SELECT * FROM edit_links WHERE token = ?', token)
+      .toArray()[0];
+    return link && link.expires > Date.now() ? { actor: JSON.parse(link.actor) as Actor, key: link.character, expires: link.expires } : undefined;
+  }
+
+  async editView(token: string): Promise<EditView | undefined> {
+    const link = this.editLinkRow(token);
+    const character = link && this.characters().find((c) => nameKey(c.name) === link.key);
+    return character && { guildName: this.setting('title') ?? '', character, expires: link.expires };
+  }
+
+  async editSave(token: string, add: number[], remove: number[]): Promise<Changes> {
+    const link = this.editLinkRow(token);
+    const row = link && this.sql.exec<CharacterRow>('SELECT * FROM characters WHERE key = ?', link.key).toArray()[0];
+    if (!link || !row) return { ok: false, error: 'expired' };
+    return this.changeRecipes(link.actor, row.name, add, remove);
   }
 
   // ---------- The board ----------

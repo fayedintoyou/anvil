@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Character, ProfessionId, Recipe, Roster } from '../core/types';
 import { MAX_SKILL, PROFESSIONS } from '../core/types';
-import { RECIPES, isNotable, recipe, recipeLabel, searchRecipes } from '../core/recipes';
+import { RECIPES, isNotable, recipe, recipeLabel, searchRecipes, wowheadUrl } from '../core/recipes';
+import { STALE_DAYS, isStale } from '../core/stale';
 import { professionName } from '../core/professions';
 import { whoCan } from '../core/whocan';
 import { Wordmark } from './App';
@@ -141,7 +142,9 @@ function Search({ characters }: { characters: Character[] }) {
       {picked && result && (
         <div className="answer" data-recipe={picked.id}>
           <p className="answer-head">
-            <strong>{picked.name}</strong>{' '}
+            <a className="recipe-link" href={wowheadUrl(picked)} target="_blank" rel="noreferrer">
+              <strong>{picked.name}</strong>
+            </a>{' '}
             <span className="meta">
               {professionName(picked.prof)} {picked.skill} · {LEARNED[picked.learned]}
             </span>
@@ -193,7 +196,11 @@ function Professions({ characters }: { characters: Character[] }) {
                   {people.map((c) => {
                     const logged = c.recipes.filter((id) => recipe(id)?.prof === p.id).length;
                     return (
-                      <li key={c.name} title={`${c.ownerName} · updated ${ago(c.updated)}`}>
+                      <li
+                        key={c.name}
+                        className={isStale(c) ? 'stale' : undefined}
+                        title={`${c.ownerName} · updated ${ago(c.updated)}${isStale(c) ? `: over ${STALE_DAYS} days, so this may be behind` : ''}`}
+                      >
                         <span className="who">{c.name}</span>
                         <span className="bar" aria-hidden="true">
                           <span style={{ width: `${(c.skills[p.id]! / MAX_SKILL) * 100}%` }} />
@@ -248,7 +255,9 @@ function Missing({ characters }: { characters: Character[] }) {
               <ul>
                 {list.map((r) => (
                   <li key={r.id}>
-                    <span>{recipeLabel(r)}</span>
+                    <a href={wowheadUrl(r)} target="_blank" rel="noreferrer">
+                      {recipeLabel(r)}
+                    </a>
                     <span className="meta">
                       {r.skill} · {LEARNED[r.learned]}
                     </span>

@@ -1,8 +1,8 @@
 // The small part of Discord's interactions API anvil uses: signature checks, and the shapes of what
 // arrives and what goes back. https://discord.com/developers/docs/interactions/receiving-and-responding
 
-export const InteractionType = { Ping: 1, Command: 2, Autocomplete: 4 } as const;
-export const ResponseType = { Pong: 1, Message: 4, Choices: 8 } as const;
+export const InteractionType = { Ping: 1, Command: 2, Autocomplete: 4, ModalSubmit: 5 } as const;
+export const ResponseType = { Pong: 1, Message: 4, Choices: 8, Modal: 9 } as const;
 export const OptionType = { Subcommand: 1, String: 3, Integer: 4, Boolean: 5 } as const;
 const EPHEMERAL = 1 << 6;
 const MANAGE_GUILD = 1n << 5n;
@@ -21,7 +21,7 @@ export interface Interaction {
   channel_id?: string;
   member?: { nick?: string | null; permissions?: string; user: DiscordUser };
   user?: DiscordUser;
-  data?: { name: string; options?: Option[] };
+  data?: { name: string; options?: Option[]; custom_id?: string; components?: { components: { custom_id: string; value: string }[] }[] };
 }
 
 interface DiscordUser {
@@ -59,14 +59,15 @@ export function commandOptions(i: Interaction): { sub?: string; options: Option[
 /** Discord refuses a message over 2,000 characters, so a long one ends at the last whole line that fits. */
 const MAX_MESSAGE = 2000;
 
-export function message(content: string, { ephemeral = true } = {}) {
+/** A reply. Nobody is pinged unless `mention` lists them (and then only them). */
+export function message(content: string, { ephemeral = true, mention = [] as string[] } = {}) {
   if (content.length > MAX_MESSAGE) {
     const cut = content.slice(0, MAX_MESSAGE - 2);
     content = `${cut.slice(0, Math.max(cut.lastIndexOf('\n'), 0))}\n…`;
   }
   return {
     type: ResponseType.Message,
-    data: { content, flags: ephemeral ? EPHEMERAL : 0, allowed_mentions: { parse: [] } },
+    data: { content, flags: ephemeral ? EPHEMERAL : 0, allowed_mentions: { parse: [], users: mention.slice(0, 100) } },
   };
 }
 
@@ -103,4 +104,27 @@ export function discordApi(env: Env, method: string, path: string, body?: unknow
     headers: { authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+}
+
+/** A pop-up with one big text box. Its answer comes back as a ModalSubmit carrying `id`. */
+export function modal(id: string, title: string, label: string, placeholder: string) {
+  return {
+    type: ResponseType.Modal,
+    data: {
+      custom_id: id.slice(0, 100),
+      title: title.slice(0, 45),
+      components: [
+        {
+          type: 1,
+          components: [
+            { type: 4, custom_id: 'text', style: 2, label: label.slice(0, 45), placeholder: placeholder.slice(0, 100), required: true, max_length: 4000 },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+export function modalText(i: Interaction): string {
+  return i.data?.components?.flatMap((row) => row.components).find((c) => c.custom_id === 'text')?.value ?? '';
 }

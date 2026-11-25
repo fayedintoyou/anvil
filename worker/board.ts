@@ -1,8 +1,10 @@
 import { PROFESSIONS, type Roster } from '../src/core/types';
+import { STALE_DAYS, isStale } from '../src/core/stale';
 
 // The board: one message in a channel the guild picks, kept up to date by editing it. A single embed with
 // a field per profession that anyone has, crafters highest skill first. Discord caps an embed at 6000
-// characters, so each field stops at FIELD_MAX and says how many more there are.
+// characters, so each field stops at FIELD_MAX and says how many more there are. Characters nobody has
+// updated in a month are in italics, since their skills may be behind.
 
 const LAMP = 0xffb35c;
 const FIELD_MAX = 400;
@@ -25,7 +27,8 @@ export function boardMessage(roster: Roster, pageUrl: string) {
       .filter((c) => c.skills[p.id] !== undefined)
       .sort((a, b) => b.skills[p.id]! - a.skills[p.id]! || a.name.localeCompare(b.name));
     if (!people.length) return [];
-    return [{ name: `${p.name} · ${people.length}`, value: crafterList(people.map((c) => `${c.name} ${c.skills[p.id]}`)) }];
+    const entry = (c: (typeof people)[number]) => (isStale(c) ? `*${c.name} ${c.skills[p.id]}*` : `${c.name} ${c.skills[p.id]}`);
+    return [{ name: `${p.name} · ${people.length}`, value: crafterList(people.map(entry)) }];
   });
   const description = fields.length
     ? `Who can craft what. Log yours with \`/prof set\` and \`/recipe add\`; ask \`/whocan\`. [Recipes and more](${pageUrl}).`
@@ -39,7 +42,9 @@ export function boardMessage(roster: Roster, pageUrl: string) {
         color: LAMP,
         description,
         fields,
-        footer: { text: 'anvil · updated' },
+        footer: {
+          text: roster.characters.some((c) => isStale(c)) ? `Italic: not updated in ${STALE_DAYS}+ days · anvil · updated` : 'anvil · updated',
+        },
         timestamp: new Date().toISOString(),
       },
     ],

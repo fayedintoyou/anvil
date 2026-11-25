@@ -1,12 +1,13 @@
 import { GuildObject } from './guild-object';
 import { InteractionType, ResponseType, verify, type Interaction } from './discord';
-import { autocomplete, command } from './handlers';
+import { autocomplete, command, modalSubmit } from './handlers';
 
 export { GuildObject };
 
 const MAX_BODY = 64 * 1024;
 const GUILD_ID = /^\d{5,25}$/;
 const PAGE_KEY = /^[a-z0-9]{12}$/;
+const EDIT_TOKEN = /^[a-z0-9]{24}$/;
 
 function json(body: unknown, status = 200, headers: HeadersInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -27,6 +28,7 @@ async function interactions(request: Request, env: Env, url: URL): Promise<Respo
   if (interaction.type === InteractionType.Ping) return json({ type: ResponseType.Pong });
   if (interaction.type === InteractionType.Autocomplete) return json(await autocomplete(env, interaction));
   if (interaction.type === InteractionType.Command) return json(await command(env, interaction, url.origin));
+  if (interaction.type === InteractionType.ModalSubmit) return json(await modalSubmit(env, interaction));
   return new Response('Unknown interaction.', { status: 400 });
 }
 
@@ -36,6 +38,25 @@ async function guildFor(env: Env, parts: string[]) {
   if (!GUILD_ID.test(id ?? '') || !PAGE_KEY.test(key ?? '')) return undefined;
   const g = env.GUILDS.getByName(id);
   return (await g.checkPageKey(key)) ? g : undefined;
+}
+
+/** /api/e/<server>/<token>: one character's recipes, read and saved through a private link from
+ *  /recipe edit. The token stands in for the person who asked for it, until it expires. */
+async function editApi(request: Request, env: Env, url: URL): Promise<Response> {
+  const [id, token] = url.pathname.split('/').slice(3);
+  if (!GUILD_ID.test(id ?? '') || !EDIT_TOKEN.test(token ?? '')) return json({ error: 'expired' }, 404);
+  const g = env.GUILDS.getByName(id);
+  if (request.method === 'GET') {
+    const view = await g.editView(token);
+    return view ? json(view) : json({ error: 'expired' }, 404);
+  }
+  if (request.method !== 'POST') return new Response('Method not allowed.', { status: 405 });
+  const body = (await request.json().catch(() => null)) as { add?: unknown; remove?: unknown } | null;
+  const ids = (v: unknown) => (Array.isArray(v) ? v.filter((n): n is number => Number.isInteger(n)).slice(0, 3000) : []);
+  if (!body) return json({ error: 'Bad request.' }, 400);
+  const result = await g.editSave(token, ids(body.add), ids(body.remove));
+  if (!result.ok) return json({ error: result.error }, result.error === 'expired' ? 404 : 403);
+  return json({ ...result, view: await g.editView(token) });
 }
 
 function escapeAttr(text: string): string {
@@ -76,6 +97,16 @@ export default {
       if (url.pathname.startsWith('/api/g/') && request.method === 'GET') {
         const g = await guildFor(env, url.pathname.split('/').slice(3));
         return g ? json(await g.roster()) : json({ error: 'This page doesn’t exist.' }, 404);
+      }
+      if (url.pathname.startsWith('/api/e/')) return await editApi(request, env, url);
+      if (url.pathname.startsWith('/e/')) {
+        // A private link: the app's own page, never indexed or kept by a cache.
+        const shell = await env.ASSETS.fetch(new Request(new URL('/', url), request));
+        const headers = new Headers(shell.headers);
+        headers.set('cache-control', 'no-store');
+        headers.set('x-robots-tag', 'noindex');
+        headers.set('referrer-policy', 'no-referrer');
+        return new Response(shell.body, { status: shell.status, headers });
       }
       if (url.pathname.startsWith('/g/') && (request.method === 'GET' || request.method === 'HEAD')) {
         return await guildPage(request, env, url);

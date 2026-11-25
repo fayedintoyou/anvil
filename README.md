@@ -10,6 +10,10 @@ no addon to install and nothing to export from the game:
   on its own, so for most recipes that's all there is to log.
 - **`/recipe add`**: the recipes a skill doesn't cover, like drops, vendor patterns, quest rewards and
   campsite recipes. Autocomplete only offers ones the character has the skill for and still needs to log.
+- **`/recipe bulk`** and **`/recipe edit`**: for a lot at once. Bulk opens a box to paste a list into, one
+  recipe per line ("Pattern:" and the like are fine); edit sends a private link, good for two hours, to a
+  checklist of every recipe the character could have.
+- **`/want`**: asks for something in the channel and pings the people whose characters can make it.
 - **`/whocan`**: who can make something, answered in the channel. It names who has logged it or has the
   skill for it, and when a recipe nobody has turns up, who has the skill to learn it.
 - **`/crafters`**, **`/mine`**: everyone in a profession; what you've logged.
@@ -17,6 +21,8 @@ no addon to install and nothing to export from the game:
   has yet, to farm or buy toward. The link unfurls in Discord.
 - **`/board`**: a message in a channel of your choosing, with every profession's crafters, that anvil edits
   itself as people log things. Manage Server only.
+- Recipe names link to Wowhead's Classic database. Characters nobody has updated in 30 days show faded on
+  the page and in italics on the board, since their skill may be behind.
 - **Your characters are yours**: only you, or someone with Manage Server, can change them.
 - **Name your character once**: leave `character:` out and anvil uses the one you last changed (or your
   only one). `/prof forget` always needs the name.

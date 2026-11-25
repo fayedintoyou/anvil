@@ -1,10 +1,10 @@
 import type { ProfessionId, Recipe } from '../src/core/types';
 import { isProfessionId, professionName } from '../src/core/professions';
-import { isNotable, recipe as recipeById, recipeLabel, searchRecipes } from '../src/core/recipes';
+import { isNotable, matchRecipeLines, recipe as recipeById, recipeLabel, searchRecipes } from '../src/core/recipes';
 import { checkCharacterName, checkSkill, nameKey } from '../src/core/validate';
 import { whoCan } from '../src/core/whocan';
-import { actorOf, choices, commandOptions, message, type Interaction, type Option } from './discord';
-import { HELP, craftersText, mineText, whoCanText } from './format';
+import { actorOf, choices, commandOptions, message, modal, modalText, type Interaction, type Option } from './discord';
+import { HELP, changesText, craftersText, mineText, wantText, whoCanText } from './format';
 
 const get = (options: Option[], name: string) => options.find((o) => o.name === name)?.value;
 
@@ -43,7 +43,7 @@ export async function autocomplete(env: Env, i: Interaction) {
 
   if (focused.name === 'recipe') {
     const toChoice = (r: Recipe) => ({ name: `${recipeLabel(r)} · ${professionName(r.prof)} ${r.skill}`, value: String(r.id) });
-    if (i.data?.name === 'whocan') return choices(searchRecipes(typed).map(toChoice));
+    if (i.data?.name === 'whocan' || i.data?.name === 'want') return choices(searchRecipes(typed).map(toChoice));
 
     // Adding or removing: only what makes sense for the character named so far, or the one it'll default to.
     const g = guild(env, i);
@@ -71,6 +71,14 @@ export async function command(env: Env, i: Interaction, origin: string) {
     const r = pickRecipe(get(options, 'recipe'));
     if (!r) return message('I couldn’t find that recipe. Pick one from the list as you type.');
     return message(whoCanText(r, whoCan(r, (await g.roster()).characters)), { ephemeral: false });
+  }
+
+  if (name === 'want') {
+    const r = pickRecipe(get(options, 'recipe'));
+    if (!r) return message('I couldn’t find that recipe. Pick one from the list as you type.');
+    const note = String(get(options, 'note') ?? '').trim();
+    const { text, mention } = wantText(r, whoCan(r, (await g.roster()).characters), actor.id, note);
+    return message(text, { ephemeral: false, mention });
   }
 
   if (name === 'crafters') {
@@ -120,6 +128,20 @@ export async function command(env: Env, i: Interaction, origin: string) {
     }
   }
 
+  if (name === 'recipe' && sub === 'bulk') {
+    const c = (await g.roster()).characters.find((x) => nameKey(x.name) === nameKey(character.value));
+    if (!c) return message(`Log ${character.value}’s professions first with /prof set.`);
+    return modal(`bulk:${c.name}`, `Recipes for ${c.name}`, 'One recipe per line', 'Mooncloth\nPattern: Runecloth Bag\nFlask of the Titans');
+  }
+
+  if (name === 'recipe' && sub === 'edit') {
+    const link = await g.editLink(actor, character.value);
+    if (!link.ok) return message(link.error);
+    return message(
+      `Tick off ${link.character}’s recipes here: ${origin}/e/${i.guild_id}/${link.token}\nThe link is just for you and works for two hours.`,
+    );
+  }
+
   if (name === 'recipe') {
     const r = pickRecipe(get(options, 'recipe'));
     if (!r) return message('I couldn’t find that recipe. Pick one from the list as you type.');
@@ -132,4 +154,17 @@ export async function command(env: Env, i: Interaction, origin: string) {
 
 function reply(outcome: { ok: true; message: string } | { ok: false; error: string }) {
   return message(outcome.ok ? outcome.message : outcome.error);
+}
+
+/** The paste box's answer: every line matched to a recipe the character could have, then logged. */
+export async function modalSubmit(env: Env, i: Interaction) {
+  const actor = actorOf(i);
+  const id = i.data?.custom_id ?? '';
+  if (!i.guild_id || !actor || !id.startsWith('bulk:')) return message('That form has expired. Run the command again.');
+  const name = id.slice('bulk:'.length);
+  const { matched, unknown } = matchRecipeLines(modalText(i));
+  // Trainer recipes come with the skill, so they're said to be counted already rather than logged.
+  const result = await guild(env, i).changeRecipes(actor, name, matched.filter(isNotable).map((r) => r.id));
+  if (!result.ok) return message(result.error);
+  return message(changesText(result, unknown, matched.filter((r) => !isNotable(r)).map((r) => r.name)));
 }

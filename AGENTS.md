@@ -18,6 +18,8 @@
   Discord (docs/discord.md).
 - The board is the only thing that calls Discord as the bot (`discordApi`, with `DISCORD_BOT_TOKEN`). It
   edits from the Durable Object's alarm, never inside a command, so a burst of changes is one edit.
+- `/recipe edit` links (`/e/<server>/<token>`) act as the person who asked, for two hours. Treat the token
+  like a password: no-store, noindex, no referrer, and every save goes through the same ownership checks.
 - Renaming or replacing the Durable Object class needs a new entry in `migrations` in `wrangler.jsonc`.
   After changing bindings, run `npm run types`.
 - Before pushing: `npm test`, `npm run typecheck`, and `npm run test:e2e`. For any change to how the page

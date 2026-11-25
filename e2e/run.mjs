@@ -132,6 +132,23 @@ async function run(who, name, sub, values = {}, { channel } = {}) {
   const response = await post(interaction(who, 2, name, options, channel));
   assert.equal(response.status, 200, `/${name} ${sub ?? ''} answered ${response.status}`);
   const body = await response.json();
+  assert.equal(body.type, 4, `/${name} ${sub ?? ''} answered with a message`);
+  return { text: body.data.content, ephemeral: body.data.flags === 64, data: body.data };
+}
+
+/** A command answered with a pop-up rather than a message (/recipe bulk). */
+async function openModal(who, name, sub, values = {}) {
+  const options = sub ? [{ name: sub, type: 1, options: opts(values) }] : opts(values);
+  const body = await (await post(interaction(who, 2, name, options))).json();
+  assert.equal(body.type, 9, `/${name} ${sub ?? ''} opens a pop-up`);
+  return body.data;
+}
+
+/** Sending the pop-up's text box back, as Discord does when someone presses Submit. */
+async function submitModal(who, customId, text) {
+  const i = interaction(who, 5);
+  i.data = { custom_id: customId, components: [{ type: 1, components: [{ type: 4, custom_id: 'text', value: text }] }] };
+  const body = await (await post(i)).json();
   assert.equal(body.type, 4);
   return { text: body.data.content, ephemeral: body.data.flags === 64 };
 }
@@ -231,7 +248,7 @@ try {
   assert.match(r.text, /Nobody’s logged this one yet/);
   assert.match(r.text, /learn it if the recipe turns up: Brakka \(120\)/);
   r = await run('faye', 'whocan', null, { recipe: 'mooncloth' });
-  assert.match(r.text, /^\*\*Mooncloth\*\*/, 'a typed name still finds the recipe');
+  assert.ok(r.text.startsWith('[**Mooncloth**](<https://www.wowhead.com/classic/spell=18560>)'), 'a typed name still finds the recipe, linked to Wowhead without a preview');
   const asked = await suggest('faye', 'whocan', null, { recipe: 'flask of the ti' }, 'recipe');
   assert.match(asked[0].name, /Flask of the Titans · Alchemy 300/);
 
@@ -333,6 +350,65 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 800));
     assert.equal(discord.calls.length, before, 'with no board, changes don’t call Discord');
   }
+
+  // Lots to log: a pasted list, then the private checklist page.
+  await run('faye', 'prof', 'set', { character: 'Ysolde', profession: 'alchemy', skill: 300 });
+  await run('faye', 'prof', 'set', { character: 'Ysolde', profession: 'tailoring', skill: 250 });
+  const form = await openModal('faye', 'recipe', 'bulk');
+  assert.equal(form.custom_id, 'bulk:Ysolde', 'the paste box is for the character last changed');
+  r = await submitModal(
+    'faye',
+    form.custom_id,
+    ['Recipe: Flask of the Titans', '- elixir of the mongoose', '', 'Pattern: Mooncloth Robe', '[Runecloth Bag]', 'Bolt of Silk Cloth', 'Glorbnax the Unfindable'].join('\n'),
+  );
+  assert.ok(r.ephemeral);
+  assert.match(r.text, /Logged 3 for Ysolde: Flask of the Titans, Elixir of the Mongoose, Runecloth Bag\./, 'item prefixes, bullets and brackets are ignored');
+  assert.match(r.text, /Already counted from the skill[^\n]*Bolt of Silk Cloth/, 'trainer recipes are said to be counted already');
+  assert.match(r.text, /doesn’t have the skill yet: Mooncloth Robe \(Tailoring 275\)/, 'one too high is skipped, not the whole list');
+  assert.match(r.text, /Didn’t recognise: “Glorbnax the Unfindable”/);
+  r = await submitModal('brakka', 'bulk:Ysolde', 'Runecloth Bag');
+  assert.match(r.text, /belongs to Faye/, 'the paste box checks ownership too');
+
+  r = await run('brakka', 'recipe', 'edit', { character: 'Ysolde' });
+  assert.match(r.text, /belongs to Faye/);
+  r = await run('faye', 'recipe', 'edit', { character: 'Ysolde' });
+  assert.ok(r.ephemeral, 'the edit link is only shown to the person');
+  const editPath = /https?:\/\/anvil\.fayelore\.com(\/e\/\d+\/[a-z0-9]{24})/.exec(r.text)?.[1];
+  assert.ok(editPath, `the reply links the checklist: ${r.text}`);
+  const editPage = await phone.newPage();
+  watch(editPage, 'edit');
+  await editPage.goto(`${BASE}${editPath}`);
+  await editPage.waitForSelector('h1.title:text("Ysolde’s recipes")');
+  assert.ok(await editPage.locator('input[data-recipe="17635"]').isChecked(), 'what’s logged is ticked');
+  assert.equal(await editPage.locator('input[data-recipe="22902"]').count(), 0, 'what needs more skill isn’t listed');
+  assert.equal(await editPage.locator('input[data-recipe="3839"]').count(), 0, 'nor trainer recipes');
+  await editPage.locator('input[data-recipe="17571"]').uncheck();
+  await editPage.fill('.search', 'cloth');
+  const extra = editPage.locator('section[data-prof="tailoring"] input:not(:checked)').first();
+  const extraId = Number(await extra.getAttribute('data-recipe'));
+  await extra.check();
+  assert.match(await editPage.locator('.savebar').innerText(), /2 changes to save/);
+  await shot(editPage, '05-edit-phone', false);
+  await editPage.click('.savebar button');
+  await editPage.waitForSelector('.savebar:has-text("Saved: logged 1, took off 1.")');
+  const saved = await (await fetch(`${BASE}/api${editPath}`)).json();
+  assert.ok(saved.character.recipes.includes(extraId) && !saved.character.recipes.includes(17571), 'the save is kept');
+  const overflowEdit = await editPage.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  assert.ok(overflowEdit <= 0, `the checklist fits a phone (${overflowEdit}px)`);
+  await editPage.goto(`${BASE}/e/${GUILD}/${'a'.repeat(24)}`);
+  await editPage.waitForSelector('h1.title:text("This link has expired")');
+  assert.equal((await fetch(`${BASE}/api/e/${GUILD}/${'a'.repeat(24)}`, { method: 'POST', body: '{"add":[1]}' })).status, 404);
+
+  // Asking for something: the people who can make it are pinged, and nobody else.
+  r = await run('brakka', 'want', null, { recipe: '17635', note: 'I have the mats' });
+  assert.ok(!r.ephemeral, '/want is said in the channel');
+  assert.match(r.text, new RegExp(`^<@${people.brakka.id}> is looking for \\[\\*\\*Flask of the Titans\\*\\*\\]\\(<https://www\\.wowhead\\.com/classic/spell=17635>\\)`));
+  assert.match(r.text, /“I have the mats”/);
+  assert.ok(r.text.includes(`<@${people.faye.id}> can make it (Ysolde).`), 'Thalia has the skill but hasn’t logged it');
+  assert.deepEqual(r.data.allowed_mentions, { parse: [], users: [people.faye.id] }, 'only the crafters are pinged');
+  r = await run('faye', 'want', null, { recipe: '17635' });
+  assert.match(r.text, /Only your own characters can make it/);
+  assert.deepEqual(r.data.allowed_mentions.users, [], 'nobody pings themselves');
 
   // A reply that would pass Discord's 2,000 characters ends at a whole line instead.
   for (const name of ['Aela', 'Brinn', 'Cass', 'Dov', 'Eir', 'Fen', 'Gale', 'Hest', 'Ivo', 'Jun', 'Kell', 'Lio', 'Mara']) {

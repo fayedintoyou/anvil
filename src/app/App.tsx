@@ -1,10 +1,14 @@
 import { GuildPage } from './GuildPage';
+import { EditPage } from './EditPage';
 
-// Two pages, so no router: '/' says what anvil is, '/g/<server>/<key>' is a guild's page.
+// Three pages, so no router: '/' says what anvil is, '/g/<server>/<key>' is a guild's page, and
+// '/e/<server>/<token>' is someone's private recipe checklist from /recipe edit.
 
 export function App() {
   const guild = /^\/g\/(\d+)\/([a-z0-9]+)\/?$/.exec(location.pathname);
   if (guild) return <GuildPage id={guild[1]} pageKey={guild[2]} />;
+  const edit = /^\/e\/(\d+)\/([a-z0-9]+)\/?$/.exec(location.pathname);
+  if (edit) return <EditPage id={edit[1]} token={edit[2]} />;
   if (location.pathname === '/' || location.pathname === '') return <Home />;
   return (
     <main className="page narrow">
