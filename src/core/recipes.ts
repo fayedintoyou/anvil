@@ -47,9 +47,9 @@ export function recipeLabel(r: Recipe): string {
   return r.makes && r.makes !== r.name ? `${r.name} → ${r.makes}` : r.name;
 }
 
-/** The recipe on Wowhead's Classic database, which shares WoW Forever's spell ids. */
+/** The recipe on Wowhead's WoW Forever database, which uses the same spell ids. */
 export function wowheadUrl(r: Recipe): string {
-  return `https://www.wowhead.com/classic/spell=${r.id}`;
+  return `https://www.wowhead.com/forever/spell=${r.id}`;
 }
 
 // What the recipe items are called in the game, which people paste from tooltips and notes.

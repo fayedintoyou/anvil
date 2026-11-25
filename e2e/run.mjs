@@ -248,7 +248,7 @@ try {
   assert.match(r.text, /Nobody’s logged this one yet/);
   assert.match(r.text, /learn it if the recipe turns up: Brakka \(120\)/);
   r = await run('faye', 'whocan', null, { recipe: 'mooncloth' });
-  assert.ok(r.text.startsWith('[**Mooncloth**](<https://www.wowhead.com/classic/spell=18560>)'), 'a typed name still finds the recipe, linked to Wowhead without a preview');
+  assert.ok(r.text.startsWith('[**Mooncloth**](<https://www.wowhead.com/forever/spell=18560>)'), 'a typed name still finds the recipe, linked to Wowhead without a preview');
   const asked = await suggest('faye', 'whocan', null, { recipe: 'flask of the ti' }, 'recipe');
   assert.match(asked[0].name, /Flask of the Titans · Alchemy 300/);
 
@@ -404,7 +404,7 @@ try {
   // Asking for something: the people who can make it are pinged, and nobody else.
   r = await run('brakka', 'want', null, { recipe: '17635', note: 'I have the mats' });
   assert.ok(!r.ephemeral, '/want is said in the channel');
-  assert.match(r.text, new RegExp(`^<@${people.brakka.id}> is looking for \\[\\*\\*Flask of the Titans\\*\\*\\]\\(<https://www\\.wowhead\\.com/classic/spell=17635>\\)`));
+  assert.match(r.text, new RegExp(`^<@${people.brakka.id}> is looking for \\[\\*\\*Flask of the Titans\\*\\*\\]\\(<https://www\\.wowhead\\.com/forever/spell=17635>\\)`));
   assert.match(r.text, /“I have the mats”/);
   assert.ok(r.text.includes(`<@${people.faye.id}> can make it (Ysolde).`), 'Thalia has the skill but hasn’t logged it');
   assert.deepEqual(r.data.allowed_mentions, { parse: [], users: [people.faye.id] }, 'only the crafters are pinged');

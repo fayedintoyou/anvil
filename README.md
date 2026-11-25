@@ -21,7 +21,7 @@ no addon to install and nothing to export from the game:
   has yet, to farm or buy toward. The link unfurls in Discord.
 - **`/board`**: a message in a channel of your choosing, with every profession's crafters, that anvil edits
   itself as people log things. Manage Server only.
-- Recipe names link to Wowhead's Classic database. Characters nobody has updated in 30 days show faded on
+- Recipe names link to Wowhead's WoW Forever database. Characters nobody has updated in 30 days show faded on
   the page and in italics on the board, since their skill may be behind.
 - **Your characters are yours**: only you, or someone with Manage Server, can change them.
 - **Name your character once**: leave `character:` out and anvil uses the one you last changed (or your
