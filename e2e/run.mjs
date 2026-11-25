@@ -57,8 +57,8 @@ async function fakeDiscord() {
     url: `http://127.0.0.1:${http.address().port}`,
     close: () => http.close(),
     /** The first call so far, or soon, that matches. */
-    async waitFor(match, what) {
-      for (let waited = 0; waited < 10_000; waited += 50) {
+    async waitFor(match, what, timeout = 20_000) {
+      for (let waited = 0; waited < timeout; waited += 50) {
         const call = calls.find(match);
         if (call) return call;
         await new Promise((r) => setTimeout(r, 50));

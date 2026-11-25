@@ -211,6 +211,11 @@ export class GuildObject extends DurableObject<Env> {
   }
 
   async roster(): Promise<Roster> {
+    // A safety net: if the alarm ever stopped rescheduling itself, the next read starts it again, so
+    // cooldowns, reminders and the digest can't go quiet for good.
+    if ((await this.ctx.storage.getAlarm()) === null && this.sql.exec('SELECT 1 FROM characters LIMIT 1').toArray().length) {
+      await this.ctx.storage.setAlarm(Date.now() + 60_000 * Math.min(1, this.scale * 1000)); // a minute, or less when sped up
+    }
     return { guildName: this.setting('title') ?? '', characters: this.characters() };
   }
 
