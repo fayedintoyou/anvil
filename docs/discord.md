@@ -9,7 +9,7 @@ Discord.
 
 1. At https://discord.com/developers/applications, **New Application**, named `anvil`. An icon can be
    `public/favicon.svg` exported as a PNG.
-2. **General Information**: copy the **Application ID** and the **Public Key**.
+2. **General Information**: copy the **Application ID** (`1575223128731418746`) and the **Public Key**.
 3. Give the Worker the public key, without showing it:
    ```sh
    npx wrangler secret put DISCORD_PUBLIC_KEY      # paste the Public Key
@@ -19,10 +19,13 @@ Discord.
    first; the save only succeeds if the Worker is deployed and has the key.
 5. **Bot**: **Reset Token** and keep it for the next step. Nothing else on that page is needed: anvil
    doesn't read messages, so it needs no privileged intents.
-6. Register the commands:
+6. Register the commands: add the token as the repository secret `DISCORD_BOT_TOKEN` (GitHub → Settings →
+   Secrets and variables → Actions). Every deploy of `main` then registers them globally, which can take
+   an hour to show; rerun the latest "test and deploy" run to register at once. From a machine with the
+   token instead:
    ```sh
-   DISCORD_APP_ID=… DISCORD_BOT_TOKEN=… npm run register              # every server, can take an hour
-   DISCORD_APP_ID=… DISCORD_BOT_TOKEN=… npm run register -- <server>   # one server, at once, for testing
+   DISCORD_APP_ID=1575223128731418746 DISCORD_BOT_TOKEN=… npm run register              # every server
+   DISCORD_APP_ID=1575223128731418746 DISCORD_BOT_TOKEN=… npm run register -- <server>   # one server, at once
    ```
 7. **Installation**: under Guild Install, the scopes `applications.commands` (and `bot`, for an icon in the
    member list) with no permissions. Open the install link and add anvil to the guild's server.
