@@ -601,7 +601,21 @@ export class GuildObject extends DurableObject<Env> {
    *  daily look for stale entries. */
   private async wake(at: number) {
     const current = await this.ctx.storage.getAlarm();
-    if (current === null || at < current) await this.ctx.storage.setAlarm(at);
+    if (current === null || at < current || current < Date.now()) await this.ctx.storage.setAlarm(at);
+  }
+
+  /** The alarm's next run, decided at the end of each run from everything that's due, and set outright:
+   *  a run doesn't trust what getAlarm says about itself. */
+  private nextAlarm(now: number): number | undefined {
+    const due: number[] = [];
+    if (this.setting('boardDirty')) due.push(now + Number(this.env.BOARD_DELAY_MS ?? BOARD_DELAY_MS));
+    if (this.sql.exec('SELECT 1 FROM outbox LIMIT 1').toArray().length) due.push(now + Number(this.env.BOARD_DELAY_MS ?? BOARD_DELAY_MS));
+    const cooldown = this.sql.exec<{ ends: number | null }>('SELECT MIN(ends) AS ends FROM cooldowns WHERE notified = 0').one().ends;
+    if (cooldown) due.push(cooldown);
+    const digestAt = Number(this.setting('digestAt') ?? 0);
+    if (digestAt && this.setting('boardChannel')) due.push(digestAt);
+    if (this.sql.exec('SELECT 1 FROM characters LIMIT 1').toArray().length) due.push(now + DAY_MS * this.scale);
+    return due.length ? Math.max(Math.min(...due), now) : undefined;
   }
 
   /** After a change: edit the board a little later, so a burst of changes is one edit, and make sure the
@@ -686,19 +700,14 @@ export class GuildObject extends DurableObject<Env> {
       try {
         await this.editBoard();
       } catch (e) {
-        // Discord busy or rate limited: try the board again shortly. Not by throwing, which would back the
-        // whole alarm off, cooldown messages and all.
+        // Discord busy or rate limited: the board stays dirty, so the next run (shortly) tries again. Not
+        // by throwing, which would back the whole alarm off, cooldown messages and all.
         console.error(e);
         this.setSetting('boardDirty', '1');
-        await this.wake(now + Number(this.env.BOARD_DELAY_MS ?? BOARD_DELAY_MS));
       }
     }
-    // What's next: the soonest cooldown still to come, and tomorrow's look for stale entries.
-    const next = this.sql.exec<{ ends: number }>('SELECT MIN(ends) AS ends FROM cooldowns WHERE notified = 0').toArray()[0]?.ends;
-    if (next) await this.wake(next);
-    const digestAt = Number(this.setting('digestAt') ?? 0);
-    if (digestAt && this.setting('boardChannel')) await this.wake(digestAt);
-    if (this.sql.exec('SELECT 1 FROM characters LIMIT 1').toArray().length) await this.wake(now + DAY_MS * this.scale);
+    const next = this.nextAlarm(Date.now());
+    if (next !== undefined) await this.ctx.storage.setAlarm(next);
   }
 
   // ---------- Direct messages ----------

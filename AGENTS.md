@@ -17,8 +17,9 @@
 - Changing `worker/commands.ts` needs nothing more: each deploy of `main` registers the commands with
   Discord (docs/discord.md).
 - Calls to Discord as the bot (`discordApi`, with `DISCORD_BOT_TOKEN`) all happen in the Durable Object's
-  alarm: board edits (a burst of changes is one edit), cooldown messages, and the daily stale check. The
-  alarm is one per object, so set it with `wake()`, which only ever brings it earlier.
+  alarm: board edits (a burst of changes is one edit), cooldown messages, posts, and the daily stale
+  check. Requests bring the alarm earlier with `wake()`; each run then sets its own next run outright from
+  everything due (`nextAlarm`), rather than trusting `getAlarm` from inside a run.
 - `src/core/crafting.json` and `src/core/wowhead.json` are generated: `npm run recipes`, then `npm run
   wowhead` (item names and cooldown lengths from Wowhead's Forever tooltips). `npm run audit` checks the list.
 - `/recipe edit` links (`/e/<server>/<token>`) act as the person who asked, for two hours. Treat the token
