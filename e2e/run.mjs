@@ -395,8 +395,10 @@ try {
   assert.ok(saved.character.recipes.includes(extraId) && !saved.character.recipes.includes(17571), 'the save is kept');
   const overflowEdit = await editPage.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   assert.ok(overflowEdit <= 0, `the checklist fits a phone (${overflowEdit}px)`);
-  await editPage.goto(`${BASE}/e/${GUILD}/${'a'.repeat(24)}`);
-  await editPage.waitForSelector('h1.title:text("This link has expired")');
+  // An expired link's 404 is expected here, so this page isn't watched for console errors.
+  const expired = await phone.newPage();
+  await expired.goto(`${BASE}/e/${GUILD}/${'a'.repeat(24)}`);
+  await expired.waitForSelector('h1.title:text("This link has expired")');
   assert.equal((await fetch(`${BASE}/api/e/${GUILD}/${'a'.repeat(24)}`, { method: 'POST', body: '{"add":[1]}' })).status, 404);
 
   // Asking for something: the people who can make it are pinged, and nobody else.
