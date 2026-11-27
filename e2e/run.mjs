@@ -437,8 +437,19 @@ try {
   assert.ok(await editPage.locator('input[data-recipe="17635"]').isChecked(), 'what’s logged is ticked');
   assert.equal(await editPage.locator('input[data-recipe="22902"]').count(), 0, 'what needs more skill isn’t listed');
   assert.equal(await editPage.locator('input[data-recipe="3839"]').count(), 0, 'nor trainer recipes');
+  // Essentials first, open, with a count; everything else behind "show the rest".
+  assert.match(await editPage.locator('[data-essentials]').innerText(), /^Essentials: \d+ of \d+ ticked/);
+  assert.ok(await editPage.locator('section[data-prof="alchemy"] > .ticks input[data-recipe="17635"]').isVisible(), 'an essential is open');
+  assert.equal(await editPage.locator('section[data-prof="tailoring"] details.more').getAttribute('open'), null, 'the rest starts closed');
+  await shot(editPage, '05-edit-start-phone', false);
+  const editDesk = await desk.newPage();
+  await editDesk.goto(`${BASE}${editPath}`);
+  await editDesk.waitForSelector('[data-essentials]');
+  await shot(editDesk, '05-edit-start-desk');
+  await editDesk.close();
   await editPage.locator('input[data-recipe="17571"]').uncheck();
   await editPage.fill('.search', 'cloth');
+  assert.notEqual(await editPage.locator('section[data-prof="tailoring"] details.more').getAttribute('open'), null, 'a filter opens the rest');
   const extra = editPage.locator('section[data-prof="tailoring"] input:not(:checked)').first();
   const extraId = Number(await extra.getAttribute('data-recipe'));
   await extra.check();
@@ -629,7 +640,7 @@ try {
     assert.equal(since((c) => /Mooncloth is ready again/.test(c.body?.content ?? '')).length, 1, 'a cooldown is announced once');
     const board = since((c) => c.method === 'PATCH').pop();
     const fields = board.body.embeds[0].fields;
-    assert.match(fields.find((f) => f.name.startsWith('Requests')).value, /Mooncloth for <@100000000000000002> · open/);
+    assert.match(fields.find((f) => f.name.startsWith('Requests')).value, /Mooncloth for Brakka’s player \(<@100000000000000002>\) · open/);
     assert.match(fields.find((f) => f.name === 'Cooldowns').value, /Thalia · Mooncloth · \*\*ready\*\*/);
   }
 

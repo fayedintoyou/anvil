@@ -10,15 +10,19 @@ import type { CooldownTimer, RequestRow } from './guild-object';
 // updated in a month are in italics, since their skills may be behind.
 
 const LAMP = 0xffb35c;
-const FIELD_MAX = 400;
+// The professions share this much of the embed, each up to Discord's 1024 per field and never under 400:
+// a guild with few professions shows more crafters in each.
+const CRAFTERS_BUDGET = 3600;
+const FIELD_MIN = 400;
+const FIELD_MAX = 1024;
 
-function crafterList(entries: string[]): string {
+function crafterList(entries: string[], max: number): string {
   let text = '';
   for (let i = 0; i < entries.length; i++) {
     const next = text ? `${text} · ${entries[i]}` : entries[i];
     const rest = entries.length - i - 1;
     // Leave room to say how many didn't fit.
-    if (next.length > FIELD_MAX - (rest ? 16 : 0)) return `${text} · and ${entries.length - i} more`;
+    if (next.length > max - (rest ? 16 : 0)) return `${text} · and ${entries.length - i} more`;
     text = next;
   }
   return text;
@@ -42,6 +46,8 @@ function lines(list: string[]): string {
 /** Collecting recipes: each profession's share the guild can make, in its heading. */
 export function boardMessage(roster: Roster, pageUrl: string, extras: BoardExtras = { requests: [], cooldowns: [], bounties: [] }) {
   const covered = coverage(roster.characters);
+  const shown = PROFESSIONS.filter((p) => roster.characters.some((c) => c.skills[p.id] !== undefined)).length;
+  const fieldMax = Math.min(FIELD_MAX, Math.max(FIELD_MIN, Math.floor(CRAFTERS_BUDGET / Math.max(1, shown))));
   const fields = PROFESSIONS.flatMap((p) => {
     const people = roster.characters
       .filter((c) => c.skills[p.id] !== undefined)
@@ -52,7 +58,7 @@ export function boardMessage(roster: Roster, pageUrl: string, extras: BoardExtra
       const text = `${c.name} ${c.skills[p.id]} (<@${c.owner}>)`;
       return isStale(c) ? `*${text}*` : text;
     };
-    return [{ name: `${p.name} · ${people.length} · ${covered[p.id].percent}%`, value: crafterList(people.map(entry)) }];
+    return [{ name: `${p.name} · ${people.length} · ${covered[p.id].percent}%`, value: crafterList(people.map(entry), fieldMax) }];
   });
   if (extras.requests.length) {
     fields.push({
@@ -61,7 +67,7 @@ export function boardMessage(roster: Roster, pageUrl: string, extras: BoardExtra
         extras.requests.map((q) => {
           const what = recipeById(q.recipe)?.name ?? 'something';
           const many = q.quantity > 1 ? `${q.quantity} × ` : '';
-          return `${many}${what} for <@${q.asker}> · ${q.status === 'claimed' ? `${q.claimer_name} is making it` : 'open'}`;
+          return `${many}${what} for ${q.asker_name} (<@${q.asker}>) · ${q.status === 'claimed' ? `${q.claimer_name} is making it` : 'open'}`;
         }),
       ),
     });

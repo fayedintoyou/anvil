@@ -19,8 +19,9 @@ export const PROFESSIONS = {
   Engineering: 'engineering', Firstaid: 'firstaid', Fishing: 'fishing', Herbalism: 'herbalism',
   Leatherworking: 'leatherworking', Mining: 'mining', Skinning: 'skinning', Tailoring: 'tailoring',
 };
-// Recipe Registry's sourceKind → anvil's `Learned`. "blueprint" recipes are the new Forever ones at
-// skill 20 sold by profession suppliers, three or so per profession: the campsite recipes.
+// Recipe Registry's sourceKind → anvil's `Learned`. "blueprint" recipes are Forever's camp items: the first
+// one per profession comes from its trainer (scripts/recipes.mjs counts it as trainer), and the rest are
+// blueprints that drop or are bought.
 export const LEARNED = {
   trainer: 'trainer', drop: 'drop', worldDrop: 'drop', container: 'drop', vendor: 'vendor',
   quest: 'quest', blueprint: 'campsite', worldEvent: 'other',

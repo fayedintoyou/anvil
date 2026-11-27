@@ -18,10 +18,11 @@ const MISSING_NAMES = {
   1294289: 'Centaur Hoofwarmers',
 };
 const MAX_SKILL = 300;
-// A profession's first camp item, at skill 20, is taught by its trainer (and is also a quest reward), so it
-// counts from skill like any trainer recipe. The camp items at 140 and 300 are blueprints from dungeon bosses
-// or other players, so they stay logged. Mana Well is the Alchemy one.
-const firstCampItem = (learned, skill) => learned === 'campsite' && skill === 20;
+// A profession's first camp item (skill 20) is taught by its trainer, and is also a quest reward, so it counts
+// from skill like any trainer recipe: in Recipe Registry it's the only camp recipe no item teaches. The camp
+// items further up are blueprints from dungeon bosses or other players, so they stay logged. Mana Well is the
+// Alchemy one.
+const firstCampItem = (learned, r) => learned === 'campsite' && !r.recipeItemId;
 
 const registry = await loadRegistry();
 const names = new Map();
@@ -74,7 +75,7 @@ for (const [key, r] of Object.entries(registry)) {
   // Recipes that come with the profession count as taught. With no sourceKind, a recipe that no item
   // teaches is a trainer's; one an item teaches is unknown, so it must be logged like any other.
   const source = LEARNED[r.sourceKind] ?? (r.sourceKind ? 'other' : r.recipeItemId ? 'other' : 'trainer');
-  const learned = automatic.has(id) || firstCampItem(source, skill) ? 'trainer' : source;
+  const learned = automatic.has(id) || firstCampItem(source, r) ? 'trainer' : source;
   counts[learned] = (counts[learned] ?? 0) + 1;
   rows.push([id, name, prof, skill, learned]);
   // Difficulty: the skills where it turns orange, yellow, green and grey. A placeholder 1 (see above) is
