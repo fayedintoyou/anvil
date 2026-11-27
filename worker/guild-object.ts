@@ -693,21 +693,28 @@ export class GuildObject extends DurableObject<Env> {
 
   async alarm() {
     const now = Date.now();
-    await this.cooldownsReady(now);
-    await this.nudgeStale(now);
-    await this.sendPosts(now);
-    if (this.setting('boardDirty')) {
-      try {
-        await this.editBoard();
-      } catch (e) {
-        // Discord busy or rate limited: the board stays dirty, so the next run (shortly) tries again. Not
-        // by throwing, which would back the whole alarm off, cooldown messages and all.
-        console.error(e);
-        this.setSetting('boardDirty', '1');
+    try {
+      await this.cooldownsReady(now);
+      await this.nudgeStale(now);
+      await this.sendPosts(now);
+      if (this.setting('boardDirty')) {
+        try {
+          await this.editBoard();
+        } catch (e) {
+          // Discord busy or rate limited: the board stays dirty, so the next run (shortly) tries again. Not
+          // by throwing, which would back the whole alarm off, cooldown messages and all.
+          console.error(e);
+          this.setSetting('boardDirty', '1');
+        }
       }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      // Always set the next run, even after a failure above: a run that threw here would otherwise leave
+      // no alarm at all, and nothing would be due again until someone used the guild.
+      const next = this.nextAlarm(Date.now());
+      if (next !== undefined) await this.ctx.storage.setAlarm(next);
     }
-    const next = this.nextAlarm(Date.now());
-    if (next !== undefined) await this.ctx.storage.setAlarm(next);
   }
 
   // ---------- Direct messages ----------
