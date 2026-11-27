@@ -214,7 +214,7 @@ export class GuildObject extends DurableObject<Env> {
     // A safety net: if the alarm ever stopped rescheduling itself, the next read starts it again, so
     // cooldowns, reminders and the digest can't go quiet for good.
     if ((await this.ctx.storage.getAlarm()) === null && this.sql.exec('SELECT 1 FROM characters LIMIT 1').toArray().length) {
-      await this.ctx.storage.setAlarm(Date.now() + 60_000 * Math.min(1, this.scale * 1000)); // a minute, or less when sped up
+      await this.ctx.storage.setAlarm(Math.ceil(Date.now() + 60_000 * Math.min(1, this.scale * 1000))); // a minute, or less when sped up
     }
     return { guildName: this.setting('title') ?? '', characters: this.characters() };
   }
@@ -600,6 +600,9 @@ export class GuildObject extends DurableObject<Env> {
   /** The alarm runs at the earliest moment anything is due: a board edit, a cooldown coming ready, or the
    *  daily look for stale entries. */
   private async wake(at: number) {
+    // Whole milliseconds only: an alarm set for a fractional time is stored truncated, and then never fires.
+    // Real cooldowns are whole seconds, but the end-to-end run's scaled clock (a day is 86.4 ms) isn't.
+    at = Math.ceil(at);
     const current = await this.ctx.storage.getAlarm();
     if (current === null || at < current || current < Date.now()) await this.ctx.storage.setAlarm(at);
   }
@@ -615,7 +618,7 @@ export class GuildObject extends DurableObject<Env> {
     const digestAt = Number(this.setting('digestAt') ?? 0);
     if (digestAt && this.setting('boardChannel')) due.push(digestAt);
     if (this.sql.exec('SELECT 1 FROM characters LIMIT 1').toArray().length) due.push(now + DAY_MS * this.scale);
-    return due.length ? Math.max(Math.min(...due), now) : undefined;
+    return due.length ? Math.ceil(Math.max(Math.min(...due), now)) : undefined;
   }
 
   /** After a change: edit the board a little later, so a burst of changes is one edit, and make sure the
@@ -693,21 +696,28 @@ export class GuildObject extends DurableObject<Env> {
 
   async alarm() {
     const now = Date.now();
-    await this.cooldownsReady(now);
-    await this.nudgeStale(now);
-    await this.sendPosts(now);
-    if (this.setting('boardDirty')) {
-      try {
-        await this.editBoard();
-      } catch (e) {
-        // Discord busy or rate limited: the board stays dirty, so the next run (shortly) tries again. Not
-        // by throwing, which would back the whole alarm off, cooldown messages and all.
-        console.error(e);
-        this.setSetting('boardDirty', '1');
+    try {
+      await this.cooldownsReady(now);
+      await this.nudgeStale(now);
+      await this.sendPosts(now);
+      if (this.setting('boardDirty')) {
+        try {
+          await this.editBoard();
+        } catch (e) {
+          // Discord busy or rate limited: the board stays dirty, so the next run (shortly) tries again. Not
+          // by throwing, which would back the whole alarm off, cooldown messages and all.
+          console.error(e);
+          this.setSetting('boardDirty', '1');
+        }
       }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      // Always set the next run, even after a failure above: a run that threw here would otherwise leave
+      // no alarm at all, and nothing would be due again until someone used the guild.
+      const next = this.nextAlarm(Date.now());
+      if (next !== undefined) await this.ctx.storage.setAlarm(next);
     }
-    const next = this.nextAlarm(Date.now());
-    if (next !== undefined) await this.ctx.storage.setAlarm(next);
   }
 
   // ---------- Direct messages ----------

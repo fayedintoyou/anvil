@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Character, Recipe } from '../core/types';
 import { PROFESSIONS } from '../core/types';
 import { RECIPES, isNotable, recipeLabel, searchRecipes } from '../core/recipes';
+import { isEssential } from '../core/essentials';
 import { Wordmark } from './App';
 
 // A private page from /recipe edit: one character's recipes as checkboxes, for logging many at once. The
@@ -53,7 +54,9 @@ export function EditPage({ id, token }: { id: string; token: string }) {
       const all = RECIPES.filter(
         (r) => r.prof === p.id && ((isNotable(r) && r.skill <= character.skills[p.id]!) || character.recipes.includes(r.id)),
       ).sort((a, b) => a.skill - b.skill || a.name.localeCompare(b.name));
-      return { prof: p, all, shown: matching ? all.filter((r) => matching.has(r.id)) : all };
+      const shown = matching ? all.filter((r) => matching.has(r.id)) : all;
+      // The essentials come first and are always open; the rest sit behind "show the rest".
+      return { prof: p, all, essential: shown.filter(isEssential), rest: shown.filter((r) => !isEssential(r)) };
     });
   }, [character, query]);
 
@@ -83,6 +86,9 @@ export function EditPage({ id, token }: { id: string; token: string }) {
   const add = [...ticked].filter((r) => !logged.has(r));
   const remove = [...logged].filter((r) => !ticked.has(r));
   const changes = add.length + remove.length;
+  const essentials = groups.flatMap((g) => g.all.filter(isEssential));
+  const essentialsTicked = essentials.filter((r) => ticked.has(r.id)).length;
+  const filtering = query.trim() !== '';
 
   const toggle = (r: number) => {
     const next = new Set(ticked);
@@ -131,6 +137,11 @@ export function EditPage({ id, token }: { id: string; token: string }) {
           {view.guildName ? `${view.guildName} · ` : ''}Tick what {character.name} knows. Trainer recipes aren’t here:
           they count from the skill.
         </p>
+        {essentials.length > 0 && (
+          <p className="hint" data-essentials>
+            Essentials: {essentialsTicked} of {essentials.length} ticked. Start there; the rest is one click away.
+          </p>
+        )}
         <input
           className="search"
           type="search"
@@ -139,33 +150,32 @@ export function EditPage({ id, token }: { id: string; token: string }) {
           onChange={(e) => setQuery(e.target.value)}
           aria-label="Filter recipes"
         />
-        {groups.map(({ prof, all, shown }) => (
-          <section key={prof.id} className="edit-group" data-prof={prof.id}>
-            <h2 className="section-title">
-              {prof.name}{' '}
-              <span className="meta">
-                {character.skills[prof.id]} · {all.filter((r) => ticked.has(r.id)).length} of {all.length} ticked
-              </span>
-            </h2>
-            {shown.length ? (
-              <ul className="ticks">
-                {shown.map((r) => (
-                  <li key={r.id}>
-                    <label>
-                      <input type="checkbox" checked={ticked.has(r.id)} onChange={() => toggle(r.id)} data-recipe={r.id} />
-                      <span>{recipeLabel(r)}</span>
-                      <span className="meta">
-                        {r.skill} · {LEARNED[r.learned]}
-                      </span>
-                    </label>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="hint">{all.length ? 'Nothing matches the filter.' : 'Nothing to log yet at this skill.'}</p>
-            )}
-          </section>
-        ))}
+        {groups.map(({ prof, all, essential, rest }) => {
+          const restAll = all.filter((r) => !isEssential(r));
+          const restTicked = restAll.filter((r) => ticked.has(r.id)).length;
+          return (
+            <section key={prof.id} className="edit-group" data-prof={prof.id}>
+              <h2 className="section-title">
+                {prof.name}{' '}
+                <span className="meta">
+                  {character.skills[prof.id]} · {all.filter((r) => ticked.has(r.id)).length} of {all.length} ticked
+                </span>
+              </h2>
+              {essential.length > 0 && <Ticks list={essential} ticked={ticked} onToggle={toggle} />}
+              {rest.length > 0 && (
+                <details className="more" open={filtering || undefined}>
+                  <summary>
+                    show the rest · {restTicked} of {restAll.length} ticked
+                  </summary>
+                  <Ticks list={rest} ticked={ticked} onToggle={toggle} />
+                </details>
+              )}
+              {essential.length === 0 && rest.length === 0 && (
+                <p className="hint">{all.length ? 'Nothing matches the filter.' : 'Nothing to log yet at this skill.'}</p>
+              )}
+            </section>
+          );
+        })}
         <div className="savebar" role="status">
           <span>{status || (changes ? `${changes} change${changes === 1 ? '' : 's'} to save` : 'No changes')}</span>
           <button type="button" className="button" disabled={!changes || saving} onClick={save}>
@@ -174,5 +184,23 @@ export function EditPage({ id, token }: { id: string; token: string }) {
         </div>
       </main>
     </>
+  );
+}
+
+function Ticks({ list, ticked, onToggle }: { list: Recipe[]; ticked: Set<number>; onToggle: (id: number) => void }) {
+  return (
+    <ul className="ticks">
+      {list.map((r) => (
+        <li key={r.id}>
+          <label>
+            <input type="checkbox" checked={ticked.has(r.id)} onChange={() => onToggle(r.id)} data-recipe={r.id} />
+            <span>{recipeLabel(r)}</span>
+            <span className="meta">
+              {r.skill} · {LEARNED[r.learned]}
+            </span>
+          </label>
+        </li>
+      ))}
+    </ul>
   );
 }

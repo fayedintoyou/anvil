@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PROFESSIONS, MAX_SKILL } from './types';
 import { RECIPES, searchRecipes } from './recipes';
 import { RAIDS } from './raids';
+import { ESSENTIAL_NAMES } from './essentials';
 
 // The recipe list is generated (scripts/recipes.mjs) from two addons' data; these checks catch a source
 // changing shape under a rebuild. Behaviour is covered end to end in e2e/run.mjs.
@@ -21,7 +22,7 @@ describe('recipe list', () => {
     const mooncloth = RECIPES.find((r) => r.name === 'Mooncloth');
     expect(silk?.learned).toBe('trainer');
     expect(mooncloth?.learned).not.toBe('trainer');
-    expect(RECIPES.filter((r) => r.learned === 'campsite').length).toBeGreaterThanOrEqual(30);
+    expect(RECIPES.filter((r) => r.learned === 'campsite').length).toBeGreaterThanOrEqual(20);
   });
 
   it('takes the real skill where the source has a placeholder 1', () => {
@@ -30,9 +31,20 @@ describe('recipe list', () => {
     expect(RECIPES.find((r) => r.name === 'Tinker: Teleport')?.skill).toBe(280);
   });
 
+  it('counts each profession’s first camp item from skill, and leaves the blueprints logged', () => {
+    expect(RECIPES.find((r) => r.name === 'Mana Well')?.learned).toBe('trainer');
+    expect(RECIPES.find((r) => r.name === 'Anvil')?.learned).toBe('campsite');
+    expect(RECIPES.find((r) => r.name === 'Master Forge')?.learned).toBe('campsite');
+  });
+
   it('has every recipe the raid table names', () => {
     const names = new Set(RECIPES.map((r) => r.name));
     for (const r of RAIDS) for (const name of [...r.needs.map((n) => n.recipe), ...r.gear]) expect(names.has(name), name).toBe(true);
+  });
+
+  it('has every essential recipe by name', () => {
+    const names = new Set(RECIPES.map((r) => r.name));
+    for (const name of ESSENTIAL_NAMES) expect(names.has(name), name).toBe(true);
   });
 
   it('puts names that start with the search first', () => {
