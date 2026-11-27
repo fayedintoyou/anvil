@@ -600,6 +600,9 @@ export class GuildObject extends DurableObject<Env> {
   /** The alarm runs at the earliest moment anything is due: a board edit, a cooldown coming ready, or the
    *  daily look for stale entries. */
   private async wake(at: number) {
+    // Whole milliseconds only: an alarm set for a fractional time is stored truncated, and then never fires.
+    // Real cooldowns are whole seconds, but the end-to-end run's scaled clock (a day is 86.4 ms) isn't.
+    at = Math.ceil(at);
     const current = await this.ctx.storage.getAlarm();
     if (current === null || at < current || current < Date.now()) await this.ctx.storage.setAlarm(at);
   }
@@ -615,7 +618,7 @@ export class GuildObject extends DurableObject<Env> {
     const digestAt = Number(this.setting('digestAt') ?? 0);
     if (digestAt && this.setting('boardChannel')) due.push(digestAt);
     if (this.sql.exec('SELECT 1 FROM characters LIMIT 1').toArray().length) due.push(now + DAY_MS * this.scale);
-    return due.length ? Math.max(Math.min(...due), now) : undefined;
+    return due.length ? Math.ceil(Math.max(Math.min(...due), now)) : undefined;
   }
 
   /** After a change: edit the board a little later, so a burst of changes is one edit, and make sure the
