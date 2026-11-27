@@ -207,7 +207,7 @@ async function suggest(who, name, sub, values, focus) {
 const MOONCLOTH = '18560'; // tailoring 230, vendor
 const MOONCLOTH_ROBE = '22902'; // tailoring 275, vendor
 const SILK_BOLT = '3839'; // tailoring 100, trainer
-const CAMP_TENT = '1229432'; // leatherworking 20, campsite
+const FIELD_GUIDE = '1262985'; // skinning 140, campsite: a blueprint, so it's logged rather than counted
 
 const errors = [];
 const watch = (page, who) => {
@@ -285,13 +285,13 @@ try {
   // Asking.
   r = await run('brakka', 'whocan', null, { recipe: SILK_BOLT });
   assert.ok(!r.ephemeral, '/whocan answers in the channel');
-  assert.match(r.text, /\*\*Thalia\*\* \(Faye\) · Tailoring 255/, 'trainer recipes count from the skill');
+  assert.match(r.text, /\*\*Thalia\*\* \(<@100000000000000001>\) · Tailoring 255/, 'trainer recipes count from the skill');
   assert.doesNotMatch(r.text, /Morwen/, '90 tailoring is short of the 100 silk needs');
   r = await run('brakka', 'whocan', null, { recipe: MOONCLOTH });
-  assert.match(r.text, /\*\*Thalia\*\* \(Faye\) · logged/);
-  r = await run('faye', 'whocan', null, { recipe: CAMP_TENT });
+  assert.match(r.text, /\*\*Thalia\*\* \(<@100000000000000001>\) · logged/);
+  r = await run('faye', 'whocan', null, { recipe: FIELD_GUIDE });
   assert.match(r.text, /Nobody’s logged this one yet/);
-  assert.match(r.text, /learn it if the recipe turns up: Brakka \(120\)/);
+  assert.match(r.text, /learn it if the recipe turns up: Brakka \(140\)/);
   r = await run('faye', 'whocan', null, { recipe: 'mooncloth' });
   assert.ok(r.text.startsWith('[**Mooncloth**](<https://www.wowhead.com/forever/spell=18560>)'), 'a typed name still finds the recipe, linked to Wowhead without a preview');
   assert.match(r.text, /\nTakes: 2 Felcloth\n/, 'and says what it takes');
@@ -310,7 +310,7 @@ try {
   assert.match(asked[0].name, /Flask of the Titans · Alchemy 300/);
 
   r = await run('faye', 'crafters', null, { profession: 'tailoring' });
-  assert.match(r.text, /2 crafters\n- \*\*Thalia\*\* 255 \(Faye\) · 1 logged recipe\n- \*\*Morwen\*\* 90/);
+  assert.match(r.text, /2 crafters\n- \*\*Thalia\*\* 255 \(<@100000000000000001>\) · 1 logged recipe\n- \*\*Morwen\*\* 90/);
   r = await run('faye', 'mine');
   assert.match(r.text, /\*\*Thalia\*\*: Alchemy 300, Tailoring 255, Cooking 150\n {2}Logged: Mooncloth/);
 
@@ -377,7 +377,7 @@ try {
     assert.equal(embed.title, 'Lamplight Crafters');
     assert.ok(embed.url.endsWith(pagePath), 'the board links the guild page');
     const tailoring = embed.fields.find((f) => f.name.startsWith('Tailoring'));
-    assert.equal(tailoring.value, 'Thalia 255 · Morwen 90', 'crafters, highest skill first');
+    assert.equal(tailoring.value, 'Thalia 255 (<@100000000000000001>) · Morwen 90 (<@100000000000000002>)', 'crafters, highest skill first, each tagged to their owner');
     assert.match(tailoring.name, /^Tailoring · 2 · \d+%$/, 'with how much of the profession the guild covers');
     assert.deepEqual(first.body.allowed_mentions, { parse: [] });
 
@@ -628,7 +628,7 @@ try {
     assert.equal(since((c) => /Mooncloth is ready again/.test(c.body?.content ?? '')).length, 1, 'a cooldown is announced once');
     const board = since((c) => c.method === 'PATCH').pop();
     const fields = board.body.embeds[0].fields;
-    assert.match(fields.find((f) => f.name.startsWith('Requests')).value, /Mooncloth for Brakka’s player · open/);
+    assert.match(fields.find((f) => f.name.startsWith('Requests')).value, /Mooncloth for <@100000000000000002> · open/);
     assert.match(fields.find((f) => f.name === 'Cooldowns').value, /Thalia · Mooncloth · \*\*ready\*\*/);
   }
 

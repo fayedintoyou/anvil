@@ -27,7 +27,7 @@ const recipeLink = (r: Recipe) => `[**${r.name}**](<${wowheadUrl(r)}>)`;
 
 function crafterLine(c: Character, r: Recipe): string {
   const how = c.recipes.includes(r.id) ? 'logged' : `${professionName(r.prof)} ${c.skills[r.prof]}`;
-  return `- **${c.name}** (${c.ownerName}) · ${how} · updated ${ago(c.updated)}`;
+  return `- **${c.name}** (<@${c.owner}>) · ${how} · updated ${ago(c.updated)}`;
 }
 
 export function whoCanText(r: Recipe, result: WhoCan): string {
@@ -57,7 +57,7 @@ export function craftersText(prof: ProfessionId, roster: Roster): string {
     const logged = c.recipes.filter((id) => recipeById(id)?.prof === prof).length;
     const extra = logged ? ` · ${logged} logged recipe${logged === 1 ? '' : 's'}` : '';
     const old = isStale(c) ? ` · not updated since ${ago(c.updated)}` : '';
-    return `- **${c.name}** ${c.skills[prof]} (${c.ownerName})${extra}${old}`;
+    return `- **${c.name}** ${c.skills[prof]} (<@${c.owner}>)${extra}${old}`;
   });
   if (people.length > 25) lines.push(`…and ${people.length - 25} more on the guild page (/anvil).`);
   return [`**${professionName(prof)}** · ${people.length} crafter${people.length === 1 ? '' : 's'}`, ...lines].join('\n');

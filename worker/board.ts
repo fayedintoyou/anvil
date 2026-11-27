@@ -47,7 +47,11 @@ export function boardMessage(roster: Roster, pageUrl: string, extras: BoardExtra
       .filter((c) => c.skills[p.id] !== undefined)
       .sort((a, b) => b.skills[p.id]! - a.skills[p.id]! || a.name.localeCompare(b.name));
     if (!people.length) return [];
-    const entry = (c: (typeof people)[number]) => (isStale(c) ? `*${c.name} ${c.skills[p.id]}*` : `${c.name} ${c.skills[p.id]}`);
+    // Each character is tagged to its owner's Discord account: a mention, which doesn't ping anyone here.
+    const entry = (c: (typeof people)[number]) => {
+      const text = `${c.name} ${c.skills[p.id]} (<@${c.owner}>)`;
+      return isStale(c) ? `*${text}*` : text;
+    };
     return [{ name: `${p.name} · ${people.length} · ${covered[p.id].percent}%`, value: crafterList(people.map(entry)) }];
   });
   if (extras.requests.length) {
@@ -57,7 +61,7 @@ export function boardMessage(roster: Roster, pageUrl: string, extras: BoardExtra
         extras.requests.map((q) => {
           const what = recipeById(q.recipe)?.name ?? 'something';
           const many = q.quantity > 1 ? `${q.quantity} × ` : '';
-          return `${many}${what} for ${q.asker_name} · ${q.status === 'claimed' ? `${q.claimer_name} is making it` : 'open'}`;
+          return `${many}${what} for <@${q.asker}> · ${q.status === 'claimed' ? `${q.claimer_name} is making it` : 'open'}`;
         }),
       ),
     });
