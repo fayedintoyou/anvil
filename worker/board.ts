@@ -10,11 +10,12 @@ import type { CooldownTimer, RequestRow } from './guild-object';
 // updated in a month are in italics, since their skills may be behind.
 
 const LAMP = 0xffb35c;
-// The professions share this much of the embed, each up to Discord's 1024 per field and never under 400:
-// a guild with few professions shows more crafters in each.
-const CRAFTERS_BUDGET = 3600;
-const FIELD_MIN = 400;
+// Discord refuses an embed over 6000 characters in all, or a field over 1024. The professions' crafters get
+// whatever the rest of the board leaves, shared evenly, with a little to spare.
+const EMBED_MAX = 6000;
+const EMBED_SPARE = 100;
 const FIELD_MAX = 1024;
+const EXTRA_MAX = 1000;
 
 function crafterList(entries: string[], max: number): string {
   let text = '';
@@ -37,29 +38,30 @@ export interface BoardExtras {
 
 const MAX_LINES = 10;
 
+/** Up to MAX_LINES whole lines, within EXTRA_MAX characters, saying how many didn't fit. */
 function lines(list: string[]): string {
-  const shown = list.slice(0, MAX_LINES);
-  if (list.length > MAX_LINES) shown.push(`…and ${list.length - MAX_LINES} more`);
-  return shown.join('\n').slice(0, 1000);
+  let shown = list.slice(0, MAX_LINES);
+  const more = (n: number) => (n ? `\n…and ${n} more` : '');
+  while (shown.length > 1 && shown.join('\n').length + more(list.length - shown.length).length > EXTRA_MAX) shown = shown.slice(0, -1);
+  return (shown.join('\n') + more(list.length - shown.length)).slice(0, EXTRA_MAX);
 }
 
 /** Collecting recipes: each profession's share the guild can make, in its heading. */
 export function boardMessage(roster: Roster, pageUrl: string, extras: BoardExtras = { requests: [], cooldowns: [], bounties: [] }) {
   const covered = coverage(roster.characters);
-  const shown = PROFESSIONS.filter((p) => roster.characters.some((c) => c.skills[p.id] !== undefined)).length;
-  const fieldMax = Math.min(FIELD_MAX, Math.max(FIELD_MIN, Math.floor(CRAFTERS_BUDGET / Math.max(1, shown))));
-  const fields = PROFESSIONS.flatMap((p) => {
+  const professions = PROFESSIONS.flatMap((p) => {
     const people = roster.characters
       .filter((c) => c.skills[p.id] !== undefined)
       .sort((a, b) => b.skills[p.id]! - a.skills[p.id]! || a.name.localeCompare(b.name));
     if (!people.length) return [];
     // Each character is tagged to its owner's Discord account: a mention, which doesn't ping anyone here.
-    const entry = (c: (typeof people)[number]) => {
+    const entries = people.map((c) => {
       const text = `${c.name} ${c.skills[p.id]} (<@${c.owner}>)`;
       return isStale(c) ? `*${text}*` : text;
-    };
-    return [{ name: `${p.name} · ${people.length} · ${covered[p.id].percent}%`, value: crafterList(people.map(entry), fieldMax) }];
+    });
+    return [{ name: `${p.name} · ${people.length} · ${covered[p.id].percent}%`, entries }];
   });
+  const fields: { name: string; value: string }[] = [];
   if (extras.requests.length) {
     fields.push({
       name: `Requests · ${extras.requests.length}`,
@@ -87,21 +89,29 @@ export function boardMessage(roster: Roster, pageUrl: string, extras: BoardExtra
       ),
     });
   }
-  const description = fields.length
+  const title = (roster.guildName || 'Guild crafters').slice(0, 200);
+  const footer = roster.characters.some((c) => isStale(c)) ? `Italic: not updated in ${STALE_DAYS}+ days · anvil · updated` : 'anvil · updated';
+  const description = professions.length || fields.length
     ? `Who can craft what. Log yours with \`/prof set\` and \`/recipe add\`; ask \`/whocan\`. [Recipes and more](${pageUrl}).`
     : `Nobody’s logged anything yet. Start with \`/prof set\`, and this fills in by itself. [The guild page](${pageUrl}).`;
+  const used =
+    title.length +
+    description.length +
+    footer.length +
+    professions.reduce((n, p) => n + p.name.length, 0) +
+    fields.reduce((n, f) => n + f.name.length + f.value.length, 0);
+  const share = Math.min(FIELD_MAX, Math.floor((EMBED_MAX - EMBED_SPARE - used) / Math.max(1, professions.length)));
+  fields.unshift(...professions.map((p) => ({ name: p.name, value: crafterList(p.entries, share) })));
   return {
     content: '',
     embeds: [
       {
-        title: (roster.guildName || 'Guild crafters').slice(0, 200),
+        title,
         url: pageUrl,
         color: LAMP,
         description,
         fields,
-        footer: {
-          text: roster.characters.some((c) => isStale(c)) ? `Italic: not updated in ${STALE_DAYS}+ days · anvil · updated` : 'anvil · updated',
-        },
+        footer: { text: footer },
         timestamp: new Date().toISOString(),
       },
     ],

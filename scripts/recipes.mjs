@@ -76,6 +76,8 @@ for (const [key, r] of Object.entries(registry)) {
   // teaches is a trainer's; one an item teaches is unknown, so it must be logged like any other.
   const source = LEARNED[r.sourceKind] ?? (r.sourceKind ? 'other' : r.recipeItemId ? 'other' : 'trainer');
   const learned = automatic.has(id) || firstCampItem(source, r) ? 'trainer' : source;
+  // When unsure, a recipe is logged: a camp item no item teaches, anywhere but the first tier, needs a look.
+  if (firstCampItem(source, r) && skill > 20) throw new Error(`${name} (${id}): a camp item at ${skill} with no teaching item`);
   counts[learned] = (counts[learned] ?? 0) + 1;
   rows.push([id, name, prof, skill, learned]);
   // Difficulty: the skills where it turns orange, yellow, green and grey. A placeholder 1 (see above) is
