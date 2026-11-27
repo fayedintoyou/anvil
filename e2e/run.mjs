@@ -605,7 +605,8 @@ try {
     assert.match(digest.body.content, /🏆 Crafter of the week: \*\*Faye\*\*, with 1 filled/);
     r = await run('brakka', 'cooldown', 'used', { cooldown: 'salt-shaker' });
     assert.match(r.text, /Brakka’s Salt Shaker is ready again/, 'any leatherworker at 250 can have the Salt Shaker');
-    await run('faye', 'cooldown', 'used', { cooldown: 'recipe-18560' });
+    r = await run('faye', 'cooldown', 'used', { cooldown: 'recipe-18560' });
+    assert.match(r.text, /Mooncloth is ready again/, 'the cooldown is started for the character Faye last used');
     await run('brakka', 'want', null, { recipe: MOONCLOTH });
 
     const ready = await discord.waitFor(
